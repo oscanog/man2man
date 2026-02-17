@@ -1,0 +1,220 @@
+@import "tailwindcss";
+
+/* ============================================
+   Man2Man Design System - Mobile First
+   ============================================ */
+
+/* CSS Variables for Man2Man Color Palette */
+:root {
+  /* Primary Colors */
+  --color-rose: #FF035B;
+  --color-rose-light: #FF2B75;
+  --color-rose-dark: #D6004A;
+  
+  /* Navy Colors */
+  --color-navy-bg: #0A1628;
+  --color-navy-surface: #141D2B;
+  --color-navy-elevated: #1E2837;
+  
+  /* Semantic Colors */
+  --color-success: #00C853;
+  --color-warning: #FFB300;
+  --color-error: #FF1744;
+  
+  /* Text Colors */
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #A0AEC0;
+  --color-text-muted: #64748B;
+  
+  /* Border Colors */
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-focus: #FF035B;
+  
+  /* Spacing Scale (Mobile-first: 4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  
+  /* Touch Targets (minimum 56px for accessibility) */
+  --touch-target-min: 56px;
+  --touch-target-comfortable: 48px;
+  
+  /* Border Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  
+  /* Typography Scale */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  
+  /* Safe Area Insets for Notched Phones */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* ============================================
+   Base Styles - Mobile First
+   ============================================ */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--color-navy-bg);
+  color: var(--color-text-primary);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* Prevent text size adjustment on orientation change */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  
+  /* Safe area support for notched devices */
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
+}
+
+/* ============================================
+   Mobile-First Layout Helpers
+   ============================================ */
+
+/* Safe area container for fixed elements */
+.safe-area-inset {
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+  padding-left: max(var(--space-4), var(--safe-area-left));
+  padding-right: max(var(--space-4), var(--safe-area-right));
+}
+
+/* Bottom sheet safe area */
+.safe-area-bottom {
+  padding-bottom: max(var(--space-6), var(--safe-area-bottom));
+}
+
+/* ============================================
+   Touch Target Utilities
+   ============================================ */
+
+.touch-target {
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+}
+
+.touch-target-comfortable {
+  min-height: var(--touch-target-comfortable);
+  min-width: var(--touch-target-comfortable);
+}
+
+/* ============================================
+   Custom Scrollbar (Mobile-optimized)
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-navy-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-navy-elevated);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Hide scrollbar for mobile-native feel */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================
+   Focus States (Mobile-optimized)
+   ============================================ */
+
+/* Remove default focus outline, add custom */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-rose);
+  outline-offset: 2px;
+}
+
+/* Touch action optimization */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+}
+
+/* ============================================
+   Animation Utilities
+   ============================================ */
+
+@keyframes pulse-skeleton {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-pulse-skeleton {
+  animation: pulse-skeleton 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ============================================
+   Selection Styles
+   ============================================ */
+
+::selection {
+  background-color: var(--color-rose);
+  color: white;
+}
