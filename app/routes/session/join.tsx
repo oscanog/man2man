@@ -104,8 +104,7 @@ function JoinSessionPage() {
       // })
       
       return true
-    } catch (err) {
-      console.error(`[Join] Session verification failed:`, err)
+    } catch {
       return false
     }
   }
@@ -150,7 +149,6 @@ function JoinSessionPage() {
       const isVerified = await verifySessionJoined(result.sessionId)
       
       if (!isVerified) {
-        console.error(`[Join] Join appeared successful but session verification failed`)
         throw new Error('Join verification failed. The session may be full or no longer available.')
       }
       
@@ -160,32 +158,22 @@ function JoinSessionPage() {
       
     } catch (err) {
       let message = 'Failed to join session'
-      let shouldLogError = true
-      
+
       if (err instanceof Error) {
         const errMsg = err.message.toLowerCase()
         if (errMsg.includes('not found')) {
           message = 'Invalid code. Session not found.'
-          shouldLogError = false
         } else if (errMsg.includes('expired')) {
           message = 'This session has expired.'
-          shouldLogError = false
         } else if (errMsg.includes('full')) {
           message = 'This session is already full.'
-          shouldLogError = false
         } else if (errMsg.includes('own session')) {
           message = 'Cannot join your own session.'
-          shouldLogError = false
         } else if (errMsg.includes('closed')) {
           message = 'Session has been closed.'
-          shouldLogError = false
         } else {
           message = err.message
         }
-      }
-      
-      if (shouldLogError) {
-        console.error(`[Join] Join failed:`, err)
       }
       
       setError(message)
@@ -219,7 +207,7 @@ function JoinSessionPage() {
           {code.map((char, index) => (
             <input
               key={index}
-              ref={el => inputRefs.current[index] = el}
+              ref={(el) => { inputRefs.current[index] = el }}
               type="text"
               maxLength={1}
               value={char}
@@ -264,7 +252,7 @@ function JoinSessionPage() {
         </Button>
 
         <Button 
-          variant="outline" 
+          variant="tertiary"
           onClick={() => navigate({ to: '/session' })} 
           disabled={isLoading || isVerifying}
           className="w-full"

@@ -64,8 +64,7 @@ function CreateSessionPage() {
         })
         setIsMapReady(true)
       },
-      (err) => {
-        console.error('Location error:', err)
+      () => {
         // Still allow session creation even without location
         setIsMapReady(true)
       },
@@ -80,7 +79,7 @@ function CreateSessionPage() {
           accuracy: position.coords.accuracy,
         })
       },
-      (err) => console.error('Watch error:', err),
+      () => { /* watch error */ },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
     )
 
@@ -100,8 +99,8 @@ function CreateSessionPage() {
           lng: location.longitude,
           accuracy: location.accuracy,
         })
-      } catch (err) {
-        console.error('Failed to send location:', err)
+      } catch {
+        // Location send failed - will retry on next interval
       }
     }
 
@@ -141,18 +140,14 @@ function CreateSessionPage() {
           try {
             await navigate({ to: '/map/$sessionId', params: { sessionId: session._id } })
             // console.log('[Create] Navigation successful')
-          } catch (navErr) {
-            console.error('[Create] Navigation failed:', navErr)
-            // Show manual button
+          } catch {
             setError('Partner joined! Click below to go to map.')
           }
         }
-      } catch (err) {
+      } catch {
         consecutiveErrors++
-        console.error(`[Create] Poll error (${consecutiveErrors}/${maxConsecutiveErrors}):`, err)
-        
+
         if (consecutiveErrors >= maxConsecutiveErrors) {
-          console.error('[Create] Too many polling errors, stopping poll')
           setError('Connection lost. Please refresh the page.')
         }
       }
@@ -212,8 +207,8 @@ function CreateSessionPage() {
       await navigator.clipboard.writeText(code)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      console.error('Failed to copy:', err)
+    } catch {
+      // Clipboard API not available
     }
   }
 
@@ -358,7 +353,7 @@ function CreateSessionPage() {
 
           {error && <p className="text-red-400 mb-4">{error}</p>}
 
-          <Button variant="outline" onClick={handleCancel} className="w-full mb-3">
+          <Button variant="tertiary" onClick={handleCancel} className="w-full mb-3">
             Cancel Session
           </Button>
           

@@ -26,6 +26,8 @@ interface Session {
   user1Id: string
   user2Id: string | null
   status: 'waiting' | 'active' | 'closed'
+  user1: User | null
+  user2: User | null
 }
 
 interface Location {
@@ -65,14 +67,13 @@ function formatDistance(meters: number): string {
  */
 function getBackoffDelay(attempt: number, baseDelay: number = 1000): number {
   const delay = baseDelay * Math.pow(2, attempt)
-  // Add jitter to prevent thundering herd
   return delay + (Math.random() * delay * 0.25)
 }
 
 function MapPage() {
   const { sessionId } = useParams({ from: '/map/$sessionId' })
   const navigate = useNavigate()
-  
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [partnerUser, setPartnerUser] = useState<User | null>(null)
@@ -81,13 +82,13 @@ function MapPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSessionLoaded, setIsSessionLoaded] = useState(false)
-  
+
   // Connection and retry state
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('connected')
   const [updateError, setUpdateError] = useState<UpdateError | null>(null)
   const [retryCount, setRetryCount] = useState(0)
   const [isManualRetrying, setIsManualRetrying] = useState(false)
-  
+
   // Refs for managing intervals and retry logic
   const updateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const consecutiveErrorsRef = useRef(0)
@@ -109,31 +110,25 @@ function MapPage() {
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        // console.log('[Location] Initial position acquired:', {
-        //   lat: pos.coords.latitude,
-        //   lng: pos.coords.longitude,
-        //   accuracy: pos.coords.accuracy,
-        // })
-        setMyLocation({ 
-          lat: pos.coords.latitude, 
-          lng: pos.coords.longitude, 
-          accuracy: pos.coords.accuracy 
+        setMyLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy
         })
       },
-      (err) => {
-        console.error('[Location] Error getting initial position:', err)
+      () => {
         setError('Unable to access your location. Please enable location services.')
       },
       { enableHighAccuracy: true }
     )
 
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => setMyLocation({ 
-        lat: pos.coords.latitude, 
-        lng: pos.coords.longitude, 
-        accuracy: pos.coords.accuracy 
+      (pos) => setMyLocation({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
       }),
-      (err) => console.error('[Location] Watch error:', err),
+      () => { /* location watch error - handled by error state */ },
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
 
@@ -145,10 +140,8 @@ function MapPage() {
    */
   const sendLocationUpdate = useCallback(async (location: Location, attempt = 0): Promise<boolean> => {
     const maxRetries = 3
-    
+
     try {
-      // console.log(`[Location Update] Sending (attempt ${attempt + 1}/${maxRetries + 1})`)
-      
       await convexMutation<LocationUpdateResult>('locations:update', {
         sessionId,
         userId,
@@ -156,24 +149,18 @@ function MapPage() {
         lng: location.lng,
         accuracy: location.accuracy,
       }, {
-        maxRetries: 0, // We handle retries manually for more control
+        maxRetries: 0,
       })
-      
-      // console.log('[Location Update] Success')
+
       return true
-      
+
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      console.error(`[Location Update] Failed (attempt ${attempt + 1}):`, errorMessage)
-      
       if (attempt < maxRetries) {
         const delay = getBackoffDelay(attempt, 800)
-        // console.log(`[Location Update] Retrying in ${Math.round(delay)}ms...`)
         await new Promise(resolve => setTimeout(resolve, delay))
         return sendLocationUpdate(location, attempt + 1)
       }
-      
-      // Max retries exceeded
+
       throw err
     }
   }, [sessionId, userId])
@@ -182,27 +169,19 @@ function MapPage() {
    * Fetch session and partner location
    */
   const fetchSessionData = useCallback(async (): Promise<{ session: Session | null; partnerLoc: Location | null; partner: User | null }> => {
-    try {
-      const sessionData = await convexQuery<Session>('sessions:get', { sessionId })
-      
-      // Determine partner ID
-      const partnerId = sessionData?.user1Id === userId 
-        ? sessionData?.user2Id 
-        : sessionData?.user2Id === userId 
-          ? sessionData?.user1Id 
-          : null
-      
-      // Fetch partner location and user info in parallel
-      const [partnerLoc, partner] = await Promise.all([
-        convexQuery<Location | null>('locations:getPartnerLocation', { sessionId, userId }),
-        partnerId ? convexQuery<User | null>('users:get', { userId: partnerId }) : Promise.resolve(null),
-      ])
-      
-      return { session: sessionData, partnerLoc, partner }
-    } catch (err) {
-      console.error('[Session Data] Fetch failed:', err)
-      throw err
-    }
+    const sessionData = await convexQuery<Session>('sessions:get', { sessionId })
+
+    // Get partner location
+    const partnerLoc = await convexQuery<Location | null>('locations:getPartnerLocation', { sessionId, userId })
+
+    // Partner user data is now included in the session response
+    const partner = sessionData?.user1Id === userId
+      ? sessionData?.user2
+      : sessionData?.user2Id === userId
+        ? sessionData?.user1
+        : null
+
+    return { session: sessionData, partnerLoc, partner }
   }, [sessionId, userId])
 
   /**
@@ -210,20 +189,18 @@ function MapPage() {
    */
   const performUpdate = useCallback(async () => {
     if (isUpdatingRef.current) {
-      // console.log('[Update] Skipping - previous update still in progress')
       return
     }
-    
+
     isUpdatingRef.current = true
-    
+
     try {
       // Step 1: Send location update if available
       if (myLocation) {
         try {
           await sendLocationUpdate(myLocation)
           consecutiveErrorsRef.current = 0
-          
-          // Clear any update errors on success
+
           if (updateError) {
             setUpdateError(null)
             setConnectionStatus('connected')
@@ -231,26 +208,23 @@ function MapPage() {
         } catch (err) {
           consecutiveErrorsRef.current++
           const errorMessage = err instanceof Error ? err.message : 'Location update failed'
-          
-          console.error(`[Update] Location update failed (${consecutiveErrorsRef.current} consecutive errors):`, errorMessage)
-          
+
           // Check if user is not in session - redirect to join
-          if (errorMessage.toLowerCase().includes('not in session') || 
+          if (errorMessage.toLowerCase().includes('not in session') ||
               errorMessage.toLowerCase().includes('user not in session')) {
-            console.error('[Update] User not in session, will redirect')
             setError('You are not part of this session. Please join again.')
             setTimeout(() => {
               navigate({ to: '/session/join' })
             }, 2000)
             return
           }
-          
+
           setUpdateError({
             message: errorMessage,
             timestamp: Date.now(),
             isRecoverable: consecutiveErrorsRef.current < 5,
           })
-          
+
           if (consecutiveErrorsRef.current >= 3) {
             setConnectionStatus('disconnected')
           } else if (consecutiveErrorsRef.current >= 1) {
@@ -258,37 +232,35 @@ function MapPage() {
           }
         }
       }
-      
+
       // Step 2: Poll for session data (always try this)
       try {
         const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
-        
+
         setSession(sessionData)
         setPartnerUser(partner)
         setIsSessionLoaded(true)
         setPartnerLocation(partnerLoc)
-        
+
         // Check if user is part of this session
         if (sessionData && sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
-          console.error('[Update] User is not part of this session, redirecting to join')
           setError('You are not part of this session. Redirecting to join page...')
-          // Redirect after a short delay
           setTimeout(() => {
             navigate({ to: '/session/join' })
           }, 2000)
           return
         }
-        
+
         // Check if session is closed
         if (sessionData?.status === 'closed') {
           setError('Session has been closed')
         }
-        
+
         lastPartnerPollRef.current = Date.now()
-      } catch (err) {
-        console.error('[Update] Failed to fetch session data:', err)
+      } catch {
+        // Session data fetch failed - will retry on next cycle
       }
-      
+
     } finally {
       isUpdatingRef.current = false
     }
@@ -302,29 +274,23 @@ function MapPage() {
       setError('Location not available')
       return
     }
-    
+
     setIsManualRetrying(true)
     setRetryCount(prev => prev + 1)
-    
-    // console.log('[Manual Retry] Attempting to reconnect...')
-    
+
     try {
       await sendLocationUpdate(myLocation)
-      
-      // If location update succeeds, refresh session data
+
       const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
       setSession(sessionData)
       setPartnerUser(partner)
       setPartnerLocation(partnerLoc)
-      
+
       consecutiveErrorsRef.current = 0
       setUpdateError(null)
       setConnectionStatus('connected')
-      
-      // console.log('[Manual Retry] Success')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Reconnection failed'
-      console.error('[Manual Retry] Failed:', message)
       setUpdateError({
         message,
         timestamp: Date.now(),
@@ -338,13 +304,11 @@ function MapPage() {
   // Set up periodic updates
   useEffect(() => {
     if (!sessionId || !userId || !isAuthenticated) return
-    
-    // Initial update
+
     performUpdate()
-    
-    // Set up interval
+
     updateIntervalRef.current = setInterval(performUpdate, 2000)
-    
+
     return () => {
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
@@ -360,7 +324,6 @@ function MapPage() {
       navigate({ to: '/session' })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to end session'
-      console.error('[End Session] Failed:', err)
       setError(message)
       setIsLoading(false)
     }
@@ -412,14 +375,14 @@ function MapPage() {
   return (
     <div className="relative h-screen w-full">
       {/* Map - Client only via lazy import */}
-      <Suspense 
+      <Suspense
         fallback={
           <div className="h-full w-full bg-[#0A1628] flex items-center justify-center">
             <Loader2 className="w-8 h-8 animate-spin text-[#FF035B]" />
           </div>
         }
       >
-        <Map 
+        <Map
           myLocation={myLocation}
           partnerLocation={partnerLocation}
         />
@@ -489,8 +452,8 @@ function MapPage() {
             <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-full px-4 py-2 flex items-center gap-2">
               <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
               <span className="text-yellow-500 text-sm">
-                {isHost 
-                  ? 'Waiting for partner to join...' 
+                {isHost
+                  ? 'Waiting for partner to join...'
                   : 'Connecting to session...'}
               </span>
             </div>
@@ -516,7 +479,7 @@ function MapPage() {
             <p className="text-red-400 text-center text-sm">{error}</p>
           </div>
         )}
-        
+
         {/* Location update error with retry */}
         {updateError && !error && (
           <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-3 mb-4">
@@ -548,13 +511,13 @@ function MapPage() {
             )}
           </div>
         )}
-        
-        <Button 
-          onClick={handleEndSession} 
-          isLoading={isLoading} 
-          disabled={isLoading} 
+
+        <Button
+          onClick={handleEndSession}
+          isLoading={isLoading}
+          disabled={isLoading}
           className="w-full"
-          variant={isHost ? "default" : "secondary"}
+          variant={isHost ? "primary" : "secondary"}
         >
           {isLoading ? 'Ending...' : isHost ? 'End Session' : 'Leave Session'}
         </Button>
