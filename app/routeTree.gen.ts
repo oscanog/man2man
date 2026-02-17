@@ -9,31 +9,37 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SessionRouteImport } from './routes/session'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SessionListRouteImport } from './routes/session/list'
 import { Route as SessionJoinRouteImport } from './routes/session/join'
 import { Route as SessionCreateRouteImport } from './routes/session/create'
 import { Route as MapSessionIdRouteImport } from './routes/map.$sessionId'
 
+const SessionRoute = SessionRouteImport.update({
+  id: '/session',
+  path: '/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SessionListRoute = SessionListRouteImport.update({
-  id: '/session/list',
-  path: '/session/list',
-  getParentRoute: () => rootRouteImport,
+  id: '/list',
+  path: '/list',
+  getParentRoute: () => SessionRoute,
 } as any)
 const SessionJoinRoute = SessionJoinRouteImport.update({
-  id: '/session/join',
-  path: '/session/join',
-  getParentRoute: () => rootRouteImport,
+  id: '/join',
+  path: '/join',
+  getParentRoute: () => SessionRoute,
 } as any)
 const SessionCreateRoute = SessionCreateRouteImport.update({
-  id: '/session/create',
-  path: '/session/create',
-  getParentRoute: () => rootRouteImport,
+  id: '/create',
+  path: '/create',
+  getParentRoute: () => SessionRoute,
 } as any)
 const MapSessionIdRoute = MapSessionIdRouteImport.update({
   id: '/map/$sessionId',
@@ -43,6 +49,7 @@ const MapSessionIdRoute = MapSessionIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/session': typeof SessionRouteWithChildren
   '/map/$sessionId': typeof MapSessionIdRoute
   '/session/create': typeof SessionCreateRoute
   '/session/join': typeof SessionJoinRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/session': typeof SessionRouteWithChildren
   '/map/$sessionId': typeof MapSessionIdRoute
   '/session/create': typeof SessionCreateRoute
   '/session/join': typeof SessionJoinRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/session': typeof SessionRouteWithChildren
   '/map/$sessionId': typeof MapSessionIdRoute
   '/session/create': typeof SessionCreateRoute
   '/session/join': typeof SessionJoinRoute
@@ -67,6 +76,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/session'
     | '/map/$sessionId'
     | '/session/create'
     | '/session/join'
@@ -74,6 +84,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/session'
     | '/map/$sessionId'
     | '/session/create'
     | '/session/join'
@@ -81,6 +92,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/session'
     | '/map/$sessionId'
     | '/session/create'
     | '/session/join'
@@ -89,14 +101,19 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SessionRoute: typeof SessionRouteWithChildren
   MapSessionIdRoute: typeof MapSessionIdRoute
-  SessionCreateRoute: typeof SessionCreateRoute
-  SessionJoinRoute: typeof SessionJoinRoute
-  SessionListRoute: typeof SessionListRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/session': {
+      id: '/session'
+      path: '/session'
+      fullPath: '/session'
+      preLoaderRoute: typeof SessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -106,24 +123,24 @@ declare module '@tanstack/react-router' {
     }
     '/session/list': {
       id: '/session/list'
-      path: '/session/list'
+      path: '/list'
       fullPath: '/session/list'
       preLoaderRoute: typeof SessionListRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SessionRoute
     }
     '/session/join': {
       id: '/session/join'
-      path: '/session/join'
+      path: '/join'
       fullPath: '/session/join'
       preLoaderRoute: typeof SessionJoinRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SessionRoute
     }
     '/session/create': {
       id: '/session/create'
-      path: '/session/create'
+      path: '/create'
       fullPath: '/session/create'
       preLoaderRoute: typeof SessionCreateRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SessionRoute
     }
     '/map/$sessionId': {
       id: '/map/$sessionId'
@@ -135,12 +152,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
-const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  MapSessionIdRoute: MapSessionIdRoute,
+interface SessionRouteChildren {
+  SessionCreateRoute: typeof SessionCreateRoute
+  SessionJoinRoute: typeof SessionJoinRoute
+  SessionListRoute: typeof SessionListRoute
+}
+
+const SessionRouteChildren: SessionRouteChildren = {
   SessionCreateRoute: SessionCreateRoute,
   SessionJoinRoute: SessionJoinRoute,
   SessionListRoute: SessionListRoute,
+}
+
+const SessionRouteWithChildren =
+  SessionRoute._addFileChildren(SessionRouteChildren)
+
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  SessionRoute: SessionRouteWithChildren,
+  MapSessionIdRoute: MapSessionIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
