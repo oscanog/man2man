@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SessionRouteImport } from './routes/session'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SessionIndexRouteImport } from './routes/session/index'
 import { Route as SessionListRouteImport } from './routes/session/list'
 import { Route as SessionJoinRouteImport } from './routes/session/join'
 import { Route as SessionCreateRouteImport } from './routes/session/create'
@@ -25,6 +26,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SessionIndexRoute = SessionIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SessionRoute,
 } as any)
 const SessionListRoute = SessionListRouteImport.update({
   id: '/list',
@@ -54,14 +60,15 @@ export interface FileRoutesByFullPath {
   '/session/create': typeof SessionCreateRoute
   '/session/join': typeof SessionJoinRoute
   '/session/list': typeof SessionListRoute
+  '/session/': typeof SessionIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/session': typeof SessionRouteWithChildren
   '/map/$sessionId': typeof MapSessionIdRoute
   '/session/create': typeof SessionCreateRoute
   '/session/join': typeof SessionJoinRoute
   '/session/list': typeof SessionListRoute
+  '/session': typeof SessionIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,6 +78,7 @@ export interface FileRoutesById {
   '/session/create': typeof SessionCreateRoute
   '/session/join': typeof SessionJoinRoute
   '/session/list': typeof SessionListRoute
+  '/session/': typeof SessionIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,14 +89,15 @@ export interface FileRouteTypes {
     | '/session/create'
     | '/session/join'
     | '/session/list'
+    | '/session/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/session'
     | '/map/$sessionId'
     | '/session/create'
     | '/session/join'
     | '/session/list'
+    | '/session'
   id:
     | '__root__'
     | '/'
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/session/create'
     | '/session/join'
     | '/session/list'
+    | '/session/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -120,6 +130,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/session/': {
+      id: '/session/'
+      path: '/'
+      fullPath: '/session/'
+      preLoaderRoute: typeof SessionIndexRouteImport
+      parentRoute: typeof SessionRoute
     }
     '/session/list': {
       id: '/session/list'
@@ -156,12 +173,14 @@ interface SessionRouteChildren {
   SessionCreateRoute: typeof SessionCreateRoute
   SessionJoinRoute: typeof SessionJoinRoute
   SessionListRoute: typeof SessionListRoute
+  SessionIndexRoute: typeof SessionIndexRoute
 }
 
 const SessionRouteChildren: SessionRouteChildren = {
   SessionCreateRoute: SessionCreateRoute,
   SessionJoinRoute: SessionJoinRoute,
   SessionListRoute: SessionListRoute,
+  SessionIndexRoute: SessionIndexRoute,
 }
 
 const SessionRouteWithChildren =

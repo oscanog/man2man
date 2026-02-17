@@ -1,39 +1,12 @@
-import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
-import { useState, useEffect, useCallback } from 'react'
-import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet'
-import { Menu } from 'lucide-react'
+import { createFileRoute, useNavigate, useParams, Navigate } from '@tanstack/react-router'
+import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
+import { Menu, Loader2, MapPin, RefreshCw, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { storage } from '@/lib/storage'
 
-import 'leaflet/dist/leaflet.css'
-import L from 'leaflet'
-
-import icon from 'leaflet/dist/images/marker-icon.png'
-import iconShadow from 'leaflet/dist/images/marker-shadow.png'
-
-let DefaultIcon = L.icon({
-  iconUrl: icon,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-})
-
-L.Marker.prototype.options.icon = DefaultIcon
-
-const myIcon = L.divIcon({
-  className: 'custom-marker',
-  html: '<div style="width: 24px; height: 24px; background: #2196F3; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-})
-
-const partnerIcon = L.divIcon({
-  className: 'custom-marker',
-  html: '<div style="width: 24px; height: 24px; background: #E91E63; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-})
+// Lazy load map component to avoid SSR issues
+const Map = lazy(() => import('@/components/Map').then(m => ({ default: m.Map })))
 
 export const Route = createFileRoute('/map/$sessionId')({
   component: MapPage,
@@ -41,6 +14,11 @@ export const Route = createFileRoute('/map/$sessionId')({
     return {}
   },
 })
+
+interface User {
+  _id: string
+  username: string
+}
 
 interface Session {
   _id: string
@@ -56,20 +34,14 @@ interface Location {
   accuracy: number
 }
 
-function MapBoundsUpdater({ myLocation, partnerLocation }: { myLocation: Location | null; partnerLocation: Location | null }) {
-  const map = useMap()
-  useEffect(() => {
-    if (myLocation && partnerLocation) {
-      const bounds = L.latLngBounds(
-        [myLocation.lat, myLocation.lng],
-        [partnerLocation.lat, partnerLocation.lng]
-      )
-      map.fitBounds(bounds, { padding: [50, 50] })
-    } else if (myLocation) {
-      map.setView([myLocation.lat, myLocation.lng], 15)
-    }
-  }, [myLocation, partnerLocation, map])
-  return null
+interface LocationUpdateResult {
+  success: boolean
+}
+
+interface UpdateError {
+  message: string
+  timestamp: number
+  isRecoverable: boolean
 }
 
 function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -88,18 +60,43 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`
 }
 
+/**
+ * Exponential backoff delay calculation
+ */
+function getBackoffDelay(attempt: number, baseDelay: number = 1000): number {
+  const delay = baseDelay * Math.pow(2, attempt)
+  // Add jitter to prevent thundering herd
+  return delay + (Math.random() * delay * 0.25)
+}
+
 function MapPage() {
   const { sessionId } = useParams({ from: '/map/$sessionId' })
   const navigate = useNavigate()
   
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [session, setSession] = useState<Session | null>(null)
+  const [partnerUser, setPartnerUser] = useState<User | null>(null)
   const [myLocation, setMyLocation] = useState<Location | null>(null)
   const [partnerLocation, setPartnerLocation] = useState<Location | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isSessionLoaded, setIsSessionLoaded] = useState(false)
+  
+  // Connection and retry state
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('connected')
+  const [updateError, setUpdateError] = useState<UpdateError | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+  const [isManualRetrying, setIsManualRetrying] = useState(false)
+  
+  // Refs for managing intervals and retry logic
+  const updateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const consecutiveErrorsRef = useRef(0)
+  const isUpdatingRef = useRef(false)
+  const lastPartnerPollRef = useRef(0)
 
   const userId = storage.getUserId()
+  const isHost = session?.user1Id === userId
+  const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
 
   // Check auth
   useEffect(() => {
@@ -108,66 +105,263 @@ function MapPage() {
 
   // Watch location
   useEffect(() => {
-    if (!navigator.geolocation || !isAuthenticated) return
+    if (typeof window === 'undefined' || !navigator.geolocation || !isAuthenticated) return
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => setMyLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-      (err) => console.error('Location error:', err),
+      (pos) => {
+        // console.log('[Location] Initial position acquired:', {
+        //   lat: pos.coords.latitude,
+        //   lng: pos.coords.longitude,
+        //   accuracy: pos.coords.accuracy,
+        // })
+        setMyLocation({ 
+          lat: pos.coords.latitude, 
+          lng: pos.coords.longitude, 
+          accuracy: pos.coords.accuracy 
+        })
+      },
+      (err) => {
+        console.error('[Location] Error getting initial position:', err)
+        setError('Unable to access your location. Please enable location services.')
+      },
       { enableHighAccuracy: true }
     )
 
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => setMyLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-      (err) => console.error('Watch error:', err),
+      (pos) => setMyLocation({ 
+        lat: pos.coords.latitude, 
+        lng: pos.coords.longitude, 
+        accuracy: pos.coords.accuracy 
+      }),
+      (err) => console.error('[Location] Watch error:', err),
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
 
     return () => navigator.geolocation.clearWatch(watchId)
   }, [isAuthenticated])
 
-  // Send location and poll for updates
+  /**
+   * Send location update with retry logic
+   */
+  const sendLocationUpdate = useCallback(async (location: Location, attempt = 0): Promise<boolean> => {
+    const maxRetries = 3
+    
+    try {
+      // console.log(`[Location Update] Sending (attempt ${attempt + 1}/${maxRetries + 1})`)
+      
+      await convexMutation<LocationUpdateResult>('locations:update', {
+        sessionId,
+        userId,
+        lat: location.lat,
+        lng: location.lng,
+        accuracy: location.accuracy,
+      }, {
+        maxRetries: 0, // We handle retries manually for more control
+      })
+      
+      // console.log('[Location Update] Success')
+      return true
+      
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`[Location Update] Failed (attempt ${attempt + 1}):`, errorMessage)
+      
+      if (attempt < maxRetries) {
+        const delay = getBackoffDelay(attempt, 800)
+        // console.log(`[Location Update] Retrying in ${Math.round(delay)}ms...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return sendLocationUpdate(location, attempt + 1)
+      }
+      
+      // Max retries exceeded
+      throw err
+    }
+  }, [sessionId, userId])
+
+  /**
+   * Fetch session and partner location
+   */
+  const fetchSessionData = useCallback(async (): Promise<{ session: Session | null; partnerLoc: Location | null; partner: User | null }> => {
+    try {
+      const sessionData = await convexQuery<Session>('sessions:get', { sessionId })
+      
+      // Determine partner ID
+      const partnerId = sessionData?.user1Id === userId 
+        ? sessionData?.user2Id 
+        : sessionData?.user2Id === userId 
+          ? sessionData?.user1Id 
+          : null
+      
+      // Fetch partner location and user info in parallel
+      const [partnerLoc, partner] = await Promise.all([
+        convexQuery<Location | null>('locations:getPartnerLocation', { sessionId, userId }),
+        partnerId ? convexQuery<User | null>('users:get', { userId: partnerId }) : Promise.resolve(null),
+      ])
+      
+      return { session: sessionData, partnerLoc, partner }
+    } catch (err) {
+      console.error('[Session Data] Fetch failed:', err)
+      throw err
+    }
+  }, [sessionId, userId])
+
+  /**
+   * Main update cycle with retry logic
+   */
+  const performUpdate = useCallback(async () => {
+    if (isUpdatingRef.current) {
+      // console.log('[Update] Skipping - previous update still in progress')
+      return
+    }
+    
+    isUpdatingRef.current = true
+    
+    try {
+      // Step 1: Send location update if available
+      if (myLocation) {
+        try {
+          await sendLocationUpdate(myLocation)
+          consecutiveErrorsRef.current = 0
+          
+          // Clear any update errors on success
+          if (updateError) {
+            setUpdateError(null)
+            setConnectionStatus('connected')
+          }
+        } catch (err) {
+          consecutiveErrorsRef.current++
+          const errorMessage = err instanceof Error ? err.message : 'Location update failed'
+          
+          console.error(`[Update] Location update failed (${consecutiveErrorsRef.current} consecutive errors):`, errorMessage)
+          
+          // Check if user is not in session - redirect to join
+          if (errorMessage.toLowerCase().includes('not in session') || 
+              errorMessage.toLowerCase().includes('user not in session')) {
+            console.error('[Update] User not in session, will redirect')
+            setError('You are not part of this session. Please join again.')
+            setTimeout(() => {
+              navigate({ to: '/session/join' })
+            }, 2000)
+            return
+          }
+          
+          setUpdateError({
+            message: errorMessage,
+            timestamp: Date.now(),
+            isRecoverable: consecutiveErrorsRef.current < 5,
+          })
+          
+          if (consecutiveErrorsRef.current >= 3) {
+            setConnectionStatus('disconnected')
+          } else if (consecutiveErrorsRef.current >= 1) {
+            setConnectionStatus('reconnecting')
+          }
+        }
+      }
+      
+      // Step 2: Poll for session data (always try this)
+      try {
+        const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
+        
+        setSession(sessionData)
+        setPartnerUser(partner)
+        setIsSessionLoaded(true)
+        setPartnerLocation(partnerLoc)
+        
+        // Check if user is part of this session
+        if (sessionData && sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
+          console.error('[Update] User is not part of this session, redirecting to join')
+          setError('You are not part of this session. Redirecting to join page...')
+          // Redirect after a short delay
+          setTimeout(() => {
+            navigate({ to: '/session/join' })
+          }, 2000)
+          return
+        }
+        
+        // Check if session is closed
+        if (sessionData?.status === 'closed') {
+          setError('Session has been closed')
+        }
+        
+        lastPartnerPollRef.current = Date.now()
+      } catch (err) {
+        console.error('[Update] Failed to fetch session data:', err)
+      }
+      
+    } finally {
+      isUpdatingRef.current = false
+    }
+  }, [myLocation, sendLocationUpdate, fetchSessionData, updateError])
+
+  /**
+   * Manual retry handler
+   */
+  const handleManualRetry = useCallback(async () => {
+    if (!myLocation) {
+      setError('Location not available')
+      return
+    }
+    
+    setIsManualRetrying(true)
+    setRetryCount(prev => prev + 1)
+    
+    // console.log('[Manual Retry] Attempting to reconnect...')
+    
+    try {
+      await sendLocationUpdate(myLocation)
+      
+      // If location update succeeds, refresh session data
+      const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
+      setSession(sessionData)
+      setPartnerUser(partner)
+      setPartnerLocation(partnerLoc)
+      
+      consecutiveErrorsRef.current = 0
+      setUpdateError(null)
+      setConnectionStatus('connected')
+      
+      // console.log('[Manual Retry] Success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Reconnection failed'
+      console.error('[Manual Retry] Failed:', message)
+      setUpdateError({
+        message,
+        timestamp: Date.now(),
+        isRecoverable: false,
+      })
+    } finally {
+      setIsManualRetrying(false)
+    }
+  }, [myLocation, sendLocationUpdate, fetchSessionData])
+
+  // Set up periodic updates
   useEffect(() => {
     if (!sessionId || !userId || !isAuthenticated) return
-
-    const update = async () => {
-      try {
-        // Send my location
-        if (myLocation) {
-          await convexMutation('locations:update', {
-            sessionId,
-            userId,
-            lat: myLocation.lat,
-            lng: myLocation.lng,
-            accuracy: myLocation.accuracy,
-          })
-        }
-
-        // Get session and partner location
-        const [sessionData, partnerLoc] = await Promise.all([
-          convexQuery<Session>('sessions:get', { sessionId }),
-          convexQuery<Location | null>('locations:getPartnerLocation', { sessionId, userId }),
-        ])
-
-        setSession(sessionData)
-        setPartnerLocation(partnerLoc)
-      } catch (err) {
-        console.error('Update error:', err)
+    
+    // Initial update
+    performUpdate()
+    
+    // Set up interval
+    updateIntervalRef.current = setInterval(performUpdate, 2000)
+    
+    return () => {
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current)
       }
     }
-
-    update()
-    const interval = setInterval(update, 2000)
-    return () => clearInterval(interval)
-  }, [sessionId, userId, myLocation, isAuthenticated])
+  }, [sessionId, userId, isAuthenticated, performUpdate])
 
   const handleEndSession = async () => {
     if (!sessionId || !userId) return
     setIsLoading(true)
     try {
-      await convexMutation('sessions:close', { sessionId, userId })
+      await convexMutation('sessions:close', { sessionId, userId }, { maxRetries: 3 })
       navigate({ to: '/session' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to end session')
+      const message = err instanceof Error ? err.message : 'Failed to end session'
+      console.error('[End Session] Failed:', err)
+      setError(message)
       setIsLoading(false)
     }
   }
@@ -176,8 +370,6 @@ function MapPage() {
     if (!myLocation || !partnerLocation) return null
     return calculateDistance(myLocation.lat, myLocation.lng, partnerLocation.lat, partnerLocation.lng)
   })()
-
-  const isPartnerConnected = !!partnerLocation
 
   // Loading check
   if (isAuthenticated === null) {
@@ -192,14 +384,46 @@ function MapPage() {
     return <Navigate to="/" />
   }
 
+  // Determine connection status display
+  const getConnectionStatusDisplay = () => {
+    if (connectionStatus === 'disconnected') {
+      return {
+        icon: <WifiOff className="w-4 h-4" />,
+        color: 'text-red-500',
+        bgColor: 'bg-red-500/20',
+        borderColor: 'border-red-500/50',
+        text: 'Connection lost',
+      }
+    }
+    if (connectionStatus === 'reconnecting') {
+      return {
+        icon: <Loader2 className="w-4 h-4 animate-spin" />,
+        color: 'text-yellow-500',
+        bgColor: 'bg-yellow-500/20',
+        borderColor: 'border-yellow-500/50',
+        text: 'Reconnecting...',
+      }
+    }
+    return null
+  }
+
+  const connectionDisplay = getConnectionStatusDisplay()
+
   return (
     <div className="relative h-screen w-full">
-      <MapContainer center={[myLocation?.lat || 0, myLocation?.lng || 0]} zoom={15} className="h-full w-full" zoomControl={false}>
-        <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        {myLocation && <Marker position={[myLocation.lat, myLocation.lng]} icon={myIcon} />}
-        {partnerLocation && <Marker position={[partnerLocation.lat, partnerLocation.lng]} icon={partnerIcon} />}
-        <MapBoundsUpdater myLocation={myLocation} partnerLocation={partnerLocation} />
-      </MapContainer>
+      {/* Map - Client only via lazy import */}
+      <Suspense 
+        fallback={
+          <div className="h-full w-full bg-[#0A1628] flex items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#FF035B]" />
+          </div>
+        }
+      >
+        <Map 
+          myLocation={myLocation}
+          partnerLocation={partnerLocation}
+        />
+      </Suspense>
 
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 z-[400] p-4">
@@ -215,15 +439,65 @@ function MapPage() {
                 <p className="text-white text-xl font-bold">{session?.code || '...'}</p>
               </div>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isPartnerConnected ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                <span className={`text-sm ${isPartnerConnected ? 'text-green-500' : 'text-yellow-500'}`}>
-                  {isPartnerConnected ? 'Connected' : 'Waiting'}
-                </span>
+                {isPartnerConnected ? (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-sm text-green-500">Connected</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                    <span className="text-sm text-yellow-500">
+                      {isHost ? 'Waiting' : 'Connecting...'}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
         </div>
 
+        {/* Connection Status Banner */}
+        {connectionDisplay && (
+          <div className="mt-4 flex justify-center">
+            <div className={`${connectionDisplay.bgColor} border ${connectionDisplay.borderColor} rounded-full px-4 py-2 flex items-center gap-2`}>
+              {connectionDisplay.icon}
+              <span className={`${connectionDisplay.color} text-sm font-medium`}>
+                {connectionDisplay.text}
+              </span>
+              {connectionStatus === 'disconnected' && (
+                <button
+                  onClick={handleManualRetry}
+                  disabled={isManualRetrying}
+                  className="ml-2 flex items-center gap-1 text-white text-sm hover:underline disabled:opacity-50"
+                >
+                  {isManualRetrying ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3" />
+                  )}
+                  Retry
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Waiting for partner banner */}
+        {!isPartnerConnected && isSessionLoaded && !connectionDisplay && (
+          <div className="mt-4 flex justify-center">
+            <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-full px-4 py-2 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+              <span className="text-yellow-500 text-sm">
+                {isHost 
+                  ? 'Waiting for partner to join...' 
+                  : 'Connecting to session...'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Distance display */}
         {isPartnerConnected && distance && (
           <div className="mt-4 flex justify-center">
             <div className="bg-[#FF035B] rounded-full px-6 py-3">
@@ -236,16 +510,57 @@ function MapPage() {
 
       {/* Bottom Controls */}
       <div className="absolute bottom-0 left-0 right-0 z-[400] p-4">
-        {error && <p className="text-red-400 text-center mb-4 bg-[#141D2B]/90 p-2 rounded-lg">{error}</p>}
-        <Button onClick={handleEndSession} isLoading={isLoading} disabled={isLoading} className="w-full">
-          {isLoading ? 'Ending...' : 'End Session'}
+        {/* Error messages */}
+        {error && (
+          <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-3 mb-4">
+            <p className="text-red-400 text-center text-sm">{error}</p>
+          </div>
+        )}
+        
+        {/* Location update error with retry */}
+        {updateError && !error && (
+          <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-3 mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-red-400 text-sm">
+                  Location update failed: {updateError.message}
+                </p>
+                {!updateError.isRecoverable && (
+                  <p className="text-red-400/70 text-xs mt-1">
+                    Multiple failures detected. Please check your connection.
+                  </p>
+                )}
+              </div>
+              <Button
+                onClick={handleManualRetry}
+                isLoading={isManualRetrying}
+                disabled={isManualRetrying}
+                variant="secondary"
+                className="ml-3 shrink-0"
+              >
+                {isManualRetrying ? 'Retrying...' : 'Reconnect'}
+              </Button>
+            </div>
+            {retryCount > 0 && (
+              <p className="text-white/40 text-xs mt-2 text-center">
+                Retry attempt {retryCount}
+              </p>
+            )}
+          </div>
+        )}
+        
+        <Button 
+          onClick={handleEndSession} 
+          isLoading={isLoading} 
+          disabled={isLoading} 
+          className="w-full"
+          variant={isHost ? "default" : "secondary"}
+        >
+          {isLoading ? 'Ending...' : isHost ? 'End Session' : 'Leave Session'}
         </Button>
       </div>
     </div>
   )
 }
-
-// Need to import Navigate for the redirect
-import { Navigate } from '@tanstack/react-router'
 
 export default MapPage

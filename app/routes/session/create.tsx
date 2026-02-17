@@ -1,34 +1,12 @@
 import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router'
-import { useState, useEffect, useCallback } from 'react'
-import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet'
-import { User, Copy, Share2, Loader2 } from 'lucide-react'
+import { useState, useEffect, useCallback, Suspense, lazy } from 'react'
+import { User, Copy, Share2, Loader2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { storage } from '@/lib/storage'
 
-import 'leaflet/dist/leaflet.css'
-import L from 'leaflet'
-
-// Fix Leaflet default marker icons
-import icon from 'leaflet/dist/images/marker-icon.png'
-import iconShadow from 'leaflet/dist/images/marker-shadow.png'
-
-let DefaultIcon = L.icon({
-  iconUrl: icon,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-})
-
-L.Marker.prototype.options.icon = DefaultIcon
-
-// Custom marker for current user
-const myIcon = L.divIcon({
-  className: 'custom-marker',
-  html: '<div style="width: 24px; height: 24px; background: #2196F3; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-})
+// Lazy load map component to avoid SSR issues
+const Map = lazy(() => import('@/components/Map').then(m => ({ default: m.Map })))
 
 export const Route = createFileRoute('/session/create')({
   component: CreateSessionPage,
@@ -51,18 +29,6 @@ interface LocationData {
   accuracy: number
 }
 
-function MapUpdater({ location }: { location: LocationData | null }) {
-  const map = useMap()
-  
-  useEffect(() => {
-    if (location) {
-      map.setView([location.latitude, location.longitude], 15)
-    }
-  }, [location, map])
-  
-  return null
-}
-
 function CreateSessionPage() {
   const navigate = useNavigate()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
@@ -72,7 +38,8 @@ function CreateSessionPage() {
   const [code, setCode] = useState<string>('')
   const [copied, setCopied] = useState(false)
   const [location, setLocation] = useState<LocationData | null>(null)
-  const [isWatching, setIsWatching] = useState(false)
+  const [isMapReady, setIsMapReady] = useState(false)
+  const [partnerJoined, setPartnerJoined] = useState(false)
 
   const userId = storage.getUserId()
 
@@ -83,9 +50,10 @@ function CreateSessionPage() {
 
   // Start watching location
   const startWatchingLocation = useCallback(() => {
-    if (!navigator.geolocation) return
-    
-    setIsWatching(true)
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setIsMapReady(true)
+      return
+    }
     
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -94,9 +62,12 @@ function CreateSessionPage() {
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
         })
+        setIsMapReady(true)
       },
       (err) => {
         console.error('Location error:', err)
+        // Still allow session creation even without location
+        setIsMapReady(true)
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
@@ -139,38 +110,86 @@ function CreateSessionPage() {
     return () => clearInterval(interval)
   }, [session, location, userId])
 
-  // Poll for session status
+  // Poll for session status - more robust version
   useEffect(() => {
-    if (!session) return
+    if (!session?._id) return
+
+    let isActive = true
+    let consecutiveErrors = 0
+    const maxConsecutiveErrors = 5
 
     const pollSession = async () => {
+      if (!isActive) return
+      
       try {
-        const updatedSession = await convexQuery<Session>('sessions:get', {
+        // Use the dedicated hasPartnerJoined query for efficiency
+        // console.log(`[Create] Polling for partner joined - session: ${session._id}`)
+        const result = await convexQuery<{ joined: boolean }>('sessions:hasPartnerJoined', {
           sessionId: session._id,
         })
 
-        if (updatedSession?.user2Id) {
-          navigate({ to: '/map/$sessionId', params: { sessionId: session._id } })
+        // console.log(`[Create] Poll result:`, result)
+        consecutiveErrors = 0 // Reset error count on success
+
+        if (result.joined) {
+          // console.log('[Create] Partner joined! Redirecting to map...', {
+          //   sessionId: session._id,
+          //   code: session.code
+          // })
+          setPartnerJoined(true)
+          // Navigate to map page
+          try {
+            await navigate({ to: '/map/$sessionId', params: { sessionId: session._id } })
+            // console.log('[Create] Navigation successful')
+          } catch (navErr) {
+            console.error('[Create] Navigation failed:', navErr)
+            // Show manual button
+            setError('Partner joined! Click below to go to map.')
+          }
         }
       } catch (err) {
-        console.error('Poll error:', err)
+        consecutiveErrors++
+        console.error(`[Create] Poll error (${consecutiveErrors}/${maxConsecutiveErrors}):`, err)
+        
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.error('[Create] Too many polling errors, stopping poll')
+          setError('Connection lost. Please refresh the page.')
+        }
       }
     }
 
+    // Poll immediately
+    pollSession()
+    
+    // Then poll every 2 seconds
     const interval = setInterval(pollSession, 2000)
-    return () => clearInterval(interval)
+    
+    return () => {
+      isActive = false
+      clearInterval(interval)
+    }
   }, [session, navigate])
 
   const handleCreate = async () => {
-    if (!userId) return
+    if (!userId) {
+      setError('User not authenticated')
+      return
+    }
 
     setIsLoading(true)
     setError(null)
+    // Clear any previous session data
+    setSession(null)
+    setCode('')
+    setPartnerJoined(false)
 
     try {
+      // console.log('[Create] Creating new session...')
       const result = await convexMutation<{ sessionId: string; code: string }>('sessions:create', {
         userId,
       })
+      
+      // console.log('[Create] Session created:', result)
 
       setSession({
         _id: result.sessionId,
@@ -178,8 +197,6 @@ function CreateSessionPage() {
         user1Id: userId,
         user2Id: null,
         status: 'waiting',
-        createdAt: Date.now(),
-        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
       })
       setCode(result.code)
       startWatchingLocation()
@@ -264,32 +281,39 @@ function CreateSessionPage() {
     )
   }
 
-  // State 2: Session Created
+  // Debug logging
+  // console.log('[Create] Rendering session UI:', { sessionId: session._id, code, partnerJoined })
+
+  // State 2: Session Created - Show map with bottom sheet
   return (
     <div className="relative h-screen w-full">
-      {/* Map */}
-      <MapContainer
-        center={[location?.latitude || 0, location?.longitude || 0]}
-        zoom={15}
-        className="h-full w-full"
-        zoomControl={false}
-      >
-        <TileLayer
-          attribution='&copy; OpenStreetMap'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        {location && (
-          <Marker position={[location.latitude, location.longitude]} icon={myIcon} />
-        )}
-        <MapUpdater location={location} />
-      </MapContainer>
+      {/* Map - Client only */}
+      {isMapReady && (
+        <Suspense fallback={
+          <div className="h-full w-full bg-[#0A1628] flex items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#FF035B]" />
+          </div>
+        }>
+          <Map 
+            myLocation={location ? { lat: location.latitude, lng: location.longitude } : null}
+            partnerLocation={null}
+          />
+        </Suspense>
+      )}
 
-      {/* Waiting indicator */}
+      {/* Status indicator - changes when partner joins */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[400]">
-        <div className="bg-[#141D2B]/90 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2">
-          <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-          <span className="text-yellow-500 text-sm font-medium">Waiting for partner...</span>
-        </div>
+        {partnerJoined ? (
+          <div className="bg-green-500/90 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2 shadow-lg animate-pulse">
+            <Users className="w-4 h-4 text-white" />
+            <span className="text-white text-sm font-medium">Partner connected!</span>
+          </div>
+        ) : (
+          <div className="bg-[#141D2B]/90 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2 shadow-lg">
+            <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+            <span className="text-yellow-500 text-sm font-medium">Waiting for partner...</span>
+          </div>
+        )}
       </div>
 
       {/* Bottom Sheet */}
@@ -312,13 +336,44 @@ function CreateSessionPage() {
             </Button>
           </div>
 
-          <div className="flex items-center justify-center gap-2 text-white/60 mb-6">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>Waiting for partner to join...</span>
-          </div>
+          {partnerJoined ? (
+            <div className="mb-6">
+              <div className="flex items-center justify-center gap-2 text-green-500 mb-3">
+                <Users className="w-4 h-4" />
+                <span>Partner joined!</span>
+              </div>
+              <Button 
+                onClick={() => navigate({ to: '/map/$sessionId', params: { sessionId: session._id } })}
+                className="w-full bg-green-500 hover:bg-green-600"
+              >
+                Go to Map
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center gap-2 text-white/60 mb-6">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Waiting for partner to join...</span>
+            </div>
+          )}
 
-          <Button variant="outline" onClick={handleCancel} className="w-full">
+          {error && <p className="text-red-400 mb-4">{error}</p>}
+
+          <Button variant="outline" onClick={handleCancel} className="w-full mb-3">
             Cancel Session
+          </Button>
+          
+          <Button 
+            variant="secondary" 
+            onClick={() => {
+              // console.log('[Create] Manual refresh - creating new session')
+              setSession(null)
+              setCode('')
+              setPartnerJoined(false)
+              handleCreate()
+            }} 
+            className="w-full"
+          >
+            Create New Session
           </Button>
         </div>
       </div>

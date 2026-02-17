@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
-import { convexMutation } from '@/lib/convex'
+import { convexMutation, convexQuery, pollWithTimeout } from '@/lib/convex'
 import { storage } from '@/lib/storage'
 
 export const Route = createFileRoute('/session/join')({
@@ -11,22 +11,34 @@ export const Route = createFileRoute('/session/join')({
   },
 })
 
+interface JoinResult {
+  sessionId: string
+  joined: boolean
+}
+
+interface Session {
+  _id: string
+  code: string
+  user1Id: string
+  user2Id: string | null
+  status: 'waiting' | 'active' | 'closed'
+}
+
 function JoinSessionPage() {
   const navigate = useNavigate()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [code, setCode] = useState<string[]>(['', '', '', '', '', ''])
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isVerifying, setIsVerifying] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   const userId = storage.getUserId()
 
-  // Check auth client-side
   useEffect(() => {
     setIsAuthenticated(storage.isAuthenticated())
   }, [])
 
-  // Auto-focus first input
   useEffect(() => {
     if (isAuthenticated) {
       inputRefs.current[0]?.focus()
@@ -54,13 +66,47 @@ function JoinSessionPage() {
   }
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace') {
-      if (!code[index] && index > 0) {
-        const newCode = [...code]
-        newCode[index - 1] = ''
-        setCode(newCode)
-        inputRefs.current[index - 1]?.focus()
-      }
+    if (e.key === 'Backspace' && !code[index] && index > 0) {
+      const newCode = [...code]
+      newCode[index - 1] = ''
+      setCode(newCode)
+      inputRefs.current[index - 1]?.focus()
+    }
+  }
+
+  /**
+   * Verify that the user is actually part of the session
+   * This handles the case where the join mutation succeeds but database isn't updated
+   */
+  const verifySessionJoined = async (sessionId: string, maxAttempts = 5): Promise<boolean> => {
+    // console.log(`[Join] Verifying session ${sessionId} joined status...`)
+    
+    try {
+      const result = await pollWithTimeout<Session | null>(
+        () => convexQuery<Session | null>('sessions:get', { sessionId }),
+        (session) => {
+          // Check if user is in the session (as user2 or user1)
+          const isInSession = session !== null && 
+            (session.user2Id === userId || session.user1Id === userId)
+          return isInSession
+        },
+        {
+          interval: 800,
+          timeout: 5000,
+          maxAttempts,
+        }
+      )
+      
+      // console.log(`[Join] Session verification successful:`, {
+      //   sessionId: result._id,
+      //   user2Id: result.user2Id,
+      //   status: result.status,
+      // })
+      
+      return true
+    } catch (err) {
+      console.error(`[Join] Session verification failed:`, err)
+      return false
     }
   }
 
@@ -76,28 +122,79 @@ function JoinSessionPage() {
     }
 
     setIsLoading(true)
+    setIsVerifying(false)
     setError(null)
 
+    // console.log(`[Join] Starting join process - code: ${fullCode}, userId: ${userId}`)
+
     try {
-      const sessionId = await convexMutation<string>('sessions:join', {
+      // Step 1: Call join mutation
+      // console.log(`[Join] Step 1: Calling sessions:join mutation`)
+      
+      const result = await convexMutation<JoinResult>('sessions:join', {
         code: fullCode,
         userId,
+      }, {
+        maxRetries: 3,
+        baseDelay: 500,
       })
-      navigate({ to: '/map/$sessionId', params: { sessionId } })
+      
+      // console.log(`[Join] Step 1 complete - mutation result:`, result)
+      
+      if (!result.joined || !result.sessionId) {
+        throw new Error('Join mutation returned unsuccessful result')
+      }
+
+      // Step 2: Verify session is actually joined before navigating
+      setIsVerifying(true)
+      const isVerified = await verifySessionJoined(result.sessionId)
+      
+      if (!isVerified) {
+        console.error(`[Join] Join appeared successful but session verification failed`)
+        throw new Error('Join verification failed. The session may be full or no longer available.')
+      }
+      
+      // Step 3: Navigate to map page
+      // console.log(`[Join] Navigating to map page for session: ${result.sessionId}`)
+      navigate({ to: '/map/$sessionId', params: { sessionId: result.sessionId } })
+      
     } catch (err) {
       let message = 'Failed to join session'
+      let shouldLogError = true
+      
       if (err instanceof Error) {
         const errMsg = err.message.toLowerCase()
-        if (errMsg.includes('not found')) message = 'Invalid code. Session not found.'
-        else if (errMsg.includes('expired')) message = 'This session has expired.'
-        else if (errMsg.includes('full')) message = 'This session is already full.'
+        if (errMsg.includes('not found')) {
+          message = 'Invalid code. Session not found.'
+          shouldLogError = false
+        } else if (errMsg.includes('expired')) {
+          message = 'This session has expired.'
+          shouldLogError = false
+        } else if (errMsg.includes('full')) {
+          message = 'This session is already full.'
+          shouldLogError = false
+        } else if (errMsg.includes('own session')) {
+          message = 'Cannot join your own session.'
+          shouldLogError = false
+        } else if (errMsg.includes('closed')) {
+          message = 'Session has been closed.'
+          shouldLogError = false
+        } else {
+          message = err.message
+        }
       }
+      
+      if (shouldLogError) {
+        console.error(`[Join] Join failed:`, err)
+      }
+      
       setError(message)
+    } finally {
       setIsLoading(false)
+      setIsVerifying(false)
     }
   }
 
-  // Loading check
   if (isAuthenticated === null) {
     return (
       <div className="min-h-screen bg-[#0A1628] flex items-center justify-center">
@@ -118,7 +215,6 @@ function JoinSessionPage() {
         <h1 className="text-3xl font-bold text-white text-center mb-2">Join a Session</h1>
         <p className="text-white/60 text-center mb-8">Enter 6-digit code</p>
 
-        {/* Code Input */}
         <div className="flex gap-2 justify-center mb-6">
           {code.map((char, index) => (
             <input
@@ -129,24 +225,50 @@ function JoinSessionPage() {
               value={char}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
+              disabled={isLoading || isVerifying}
               className={`
                 w-12 h-12 text-center text-xl font-bold rounded-xl
                 bg-[#141D2B] text-white
                 border-2 transition-all duration-200
                 focus:outline-none focus:border-[#FF035B]
+                disabled:opacity-50 disabled:cursor-not-allowed
                 ${error ? 'border-red-500' : isCodeComplete ? 'border-green-500' : 'border-transparent'}
               `}
             />
           ))}
         </div>
 
-        {error && <p className="text-red-400 text-center text-sm mb-6">{error}</p>}
+        {error && (
+          <div className="mb-6">
+            <p className="text-red-400 text-center text-sm">{error}</p>
+            <p className="text-white/40 text-center text-xs mt-2">
+              If this persists, try refreshing the page
+            </p>
+          </div>
+        )}
 
-        <Button onClick={handleJoin} isLoading={isLoading} disabled={!isCodeComplete || isLoading} className="w-full mb-4">
-          {isLoading ? 'Joining...' : 'Join Session'}
+        {isVerifying && (
+          <div className="mb-6 text-center">
+            <div className="animate-spin w-6 h-6 border-2 border-white/30 border-t-[#FF035B] rounded-full mx-auto mb-2" />
+            <p className="text-white/60 text-sm">Verifying session...</p>
+          </div>
+        )}
+
+        <Button 
+          onClick={handleJoin} 
+          isLoading={isLoading && !isVerifying} 
+          disabled={!isCodeComplete || isLoading || isVerifying} 
+          className="w-full mb-4"
+        >
+          {isVerifying ? 'Verifying...' : isLoading ? 'Joining...' : 'Join Session'}
         </Button>
 
-        <Button variant="outline" onClick={() => navigate({ to: '/session' })} className="w-full">
+        <Button 
+          variant="outline" 
+          onClick={() => navigate({ to: '/session' })} 
+          disabled={isLoading || isVerifying}
+          className="w-full"
+        >
           Cancel
         </Button>
       </div>
