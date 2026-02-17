@@ -14,7 +14,8 @@ const config = defineConfig({
     },
   },
   plugins: [
-    devtools(),
+    // Devtools disabled - port conflict on 42069
+    // devtools(),
     nitro({ rollupConfig: { external: [/^@sentry\//] } }),
     viteTsConfigPaths({
       projects: ['./tsconfig.json'],
