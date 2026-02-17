@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate, Navigate, Link } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router'
+import { useState, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { storage } from '@/lib/storage'
@@ -7,24 +7,38 @@ import { storage } from '@/lib/storage'
 export const Route = createFileRoute('/session')({
   component: SessionHomePage,
   beforeLoad: async () => {
-    const auth = storage.getAuth()
-    if (!auth.deviceId || !auth.userId) {
-      throw new Error('NOT_AUTHENTICATED')
-    }
-    return { auth }
-  },
-  errorComponent: ({ error }) => {
-    if (error.message === 'NOT_AUTHENTICATED') {
-      return <Navigate to="/" />
-    }
-    return <div>Error: {error.message}</div>
+    // Let component handle auth check client-side
+    return {}
   },
 })
 
 function SessionHomePage() {
   const navigate = useNavigate()
-  
-  const username = storage.getUsername()
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [username, setUsername] = useState<string | null>(null)
+
+  // Check auth client-side
+  useEffect(() => {
+    const auth = storage.isAuthenticated()
+    setIsAuthenticated(auth)
+    if (auth) {
+      setUsername(storage.getUsername())
+    }
+  }, [])
+
+  // Show loading while checking auth
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-[#0A1628] flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-2 border-white/30 border-t-[#FF035B] rounded-full" />
+      </div>
+    )
+  }
+
+  // Redirect if not authenticated
+  if (!isAuthenticated) {
+    return <Navigate to="/" />
+  }
 
   return (
     <div className="min-h-screen bg-[#0A1628]">

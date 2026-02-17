@@ -3,6 +3,9 @@
  * 
  * Simple key-value storage using localStorage.
  * Mirrors Android's UserDataStore.
+ * 
+ * NOTE: All functions check for browser environment (typeof window !== 'undefined')
+ * to prevent SSR errors.
  */
 
 const STORAGE_KEYS = {
@@ -11,38 +14,65 @@ const STORAGE_KEYS = {
   userId: 'man2man_user_id',
 } as const
 
+// Check if we're in browser environment
+const isBrowser = (): boolean => typeof window !== 'undefined'
+
 export const storage = {
   // Device ID
   getDeviceId(): string | null {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem(STORAGE_KEYS.deviceId)
+    if (!isBrowser()) return null
+    try {
+      return localStorage.getItem(STORAGE_KEYS.deviceId)
+    } catch {
+      return null
+    }
   },
 
   setDeviceId(deviceId: string): void {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(STORAGE_KEYS.deviceId, deviceId)
+    if (!isBrowser()) return
+    try {
+      localStorage.setItem(STORAGE_KEYS.deviceId, deviceId)
+    } catch {
+      // Ignore storage errors
+    }
   },
 
   // Username
   getUsername(): string | null {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem(STORAGE_KEYS.username)
+    if (!isBrowser()) return null
+    try {
+      return localStorage.getItem(STORAGE_KEYS.username)
+    } catch {
+      return null
+    }
   },
 
   setUsername(username: string): void {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(STORAGE_KEYS.username, username)
+    if (!isBrowser()) return
+    try {
+      localStorage.setItem(STORAGE_KEYS.username, username)
+    } catch {
+      // Ignore storage errors
+    }
   },
 
   // User ID
   getUserId(): string | null {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem(STORAGE_KEYS.userId)
+    if (!isBrowser()) return null
+    try {
+      return localStorage.getItem(STORAGE_KEYS.userId)
+    } catch {
+      return null
+    }
   },
 
   setUserId(userId: string): void {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(STORAGE_KEYS.userId, userId)
+    if (!isBrowser()) return
+    try {
+      localStorage.setItem(STORAGE_KEYS.userId, userId)
+    } catch {
+      // Ignore storage errors
+    }
   },
 
   // Set all auth data at once
@@ -63,6 +93,7 @@ export const storage = {
 
   // Check if user is authenticated
   isAuthenticated(): boolean {
+    if (!isBrowser()) return false
     return !!this.getDeviceId() && !!this.getUsername() && !!this.getUserId()
   },
 
@@ -73,9 +104,13 @@ export const storage = {
 
   // Clear all data (logout)
   clear(): void {
-    if (typeof window === 'undefined') return
-    localStorage.removeItem(STORAGE_KEYS.deviceId)
-    localStorage.removeItem(STORAGE_KEYS.username)
-    localStorage.removeItem(STORAGE_KEYS.userId)
+    if (!isBrowser()) return
+    try {
+      localStorage.removeItem(STORAGE_KEYS.deviceId)
+      localStorage.removeItem(STORAGE_KEYS.username)
+      localStorage.removeItem(STORAGE_KEYS.userId)
+    } catch {
+      // Ignore storage errors
+    }
   },
 }
