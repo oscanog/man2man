@@ -2,12 +2,9 @@ import { useEffect } from 'react'
 import { HeadContent, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
-import { ConvexProvider } from 'convex/react'
 
-import Header from '../components/Header'
 import { PWAMeta } from '../components/PWAMeta'
 import { useServiceWorker } from '../hooks/useServiceWorker'
-import convex from '../lib/convex'
 import appCss from '../styles/styles.css?url'
 
 export const Route = createRootRoute({
@@ -18,7 +15,11 @@ export const Route = createRootRoute({
       },
       {
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
+      },
+      {
+        name: 'theme-color',
+        content: '#0A1628',
       },
       {
         title: 'Man2Man Location Sharing',
@@ -39,7 +40,6 @@ function RootDocument() {
   const { register } = useServiceWorker()
 
   useEffect(() => {
-    // Register service worker
     register()
   }, [register])
 
@@ -49,11 +49,10 @@ function RootDocument() {
         <HeadContent />
         <PWAMeta />
       </head>
-      <body>
-        <ConvexProvider client={convex}>
-          <Header />
+      <body className="bg-navy-900 text-white antialiased">
+        <div className="max-w-[430px] mx-auto min-h-screen bg-[#0A1628]">
           <Outlet />
-        </ConvexProvider>
+        </div>
         <TanStackDevtools
           config={{
             position: 'bottom-right',

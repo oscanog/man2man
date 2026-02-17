@@ -45,9 +45,30 @@ export const storage = {
     localStorage.setItem(STORAGE_KEYS.userId, userId)
   },
 
-  // Check if user is logged in
+  // Set all auth data at once
+  setAuthData(deviceId: string, username: string, userId: string): void {
+    this.setDeviceId(deviceId)
+    this.setUsername(username)
+    this.setUserId(userId)
+  },
+
+  // Get all auth data
+  getAuth(): { deviceId: string | null; username: string | null; userId: string | null } {
+    return {
+      deviceId: this.getDeviceId(),
+      username: this.getUsername(),
+      userId: this.getUserId(),
+    }
+  },
+
+  // Check if user is authenticated
   isAuthenticated(): boolean {
     return !!this.getDeviceId() && !!this.getUsername() && !!this.getUserId()
+  },
+
+  // Alias for isAuthenticated (for compatibility)
+  hasAuthenticated(): boolean {
+    return this.isAuthenticated()
   },
 
   // Clear all data (logout)
