@@ -196,6 +196,15 @@ function JoinSessionPage() {
   }
 
   const isCodeComplete = code.every(char => char.length === 1)
+  const getInputStateClass = () => {
+    if (error) {
+      return 'border-red-500 focus:border-red-500'
+    }
+    if (isCodeComplete) {
+      return 'border-green-500 focus:border-green-500 focus:ring-2 focus:ring-green-500/30'
+    }
+    return 'border-transparent focus:border-[#FF035B]'
+  }
 
   return (
     <div className="min-h-screen bg-[#0A1628] flex flex-col items-center justify-center px-6">
@@ -218,9 +227,9 @@ function JoinSessionPage() {
                 w-12 h-12 text-center text-xl font-bold rounded-xl
                 bg-[#141D2B] text-white
                 border-2 transition-all duration-200
-                focus:outline-none focus:border-[#FF035B]
+                focus:outline-none
                 disabled:opacity-50 disabled:cursor-not-allowed
-                ${error ? 'border-red-500' : isCodeComplete ? 'border-green-500' : 'border-transparent'}
+                ${getInputStateClass()}
               `}
             />
           ))}

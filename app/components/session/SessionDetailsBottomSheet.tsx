@@ -7,6 +7,7 @@ interface SessionDetailsBottomSheetProps {
   code: string
   createdAt: number | null
   copied: boolean
+  isSharing?: boolean
   partnerJoined: boolean
   error: string | null
   onCopy: () => void
@@ -38,6 +39,7 @@ export function SessionDetailsBottomSheet({
   code,
   createdAt,
   copied,
+  isSharing = false,
   partnerJoined,
   error,
   onCopy,
@@ -207,7 +209,9 @@ export function SessionDetailsBottomSheet({
             variant="secondary"
             onClick={onShare}
             className="flex-1 whitespace-nowrap"
-            leftIcon={<Share2 className="w-4 h-4" />}
+            leftIcon={isSharing ? undefined : <Share2 className="w-4 h-4" />}
+            disabled={isSharing}
+            isLoading={isSharing}
           >
             Share
           </Button>

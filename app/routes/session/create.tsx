@@ -39,6 +39,7 @@ function CreateSessionPage() {
   const [code, setCode] = useState<string>('')
   const [sessionCreatedAt, setSessionCreatedAt] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  const [isSharing, setIsSharing] = useState(false)
   const [location, setLocation] = useState<LocationData | null>(null)
   const [isMapReady, setIsMapReady] = useState(false)
   const [partnerJoined, setPartnerJoined] = useState(false)
@@ -217,20 +218,34 @@ function CreateSessionPage() {
   }
 
   const handleShare = async () => {
+    if (isSharing) return
+
+    const joinUrl = `${window.location.origin}/session/join?code=${code}`
     const shareData = {
       title: 'Join my Man2Man session',
-      text: `Join my location sharing session with code: ${code}`,
-      url: `${window.location.origin}/session/join?code=${code}`,
+      // Keep a single canonical URL in text to avoid duplicates on some share targets.
+      text: `Join my location sharing session with code: ${code}\n${joinUrl}`,
     }
 
+    setIsSharing(true)
     if (navigator.share) {
       try {
         await navigator.share(shareData)
       } catch {
         // User cancelled
+      } finally {
+        setIsSharing(false)
       }
     } else {
-      handleCopy()
+      try {
+        await navigator.clipboard.writeText(shareData.text)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        // Clipboard API not available
+      } finally {
+        setIsSharing(false)
+      }
     }
   }
 
@@ -319,6 +334,7 @@ function CreateSessionPage() {
         code={code}
         createdAt={sessionCreatedAt}
         copied={copied}
+        isSharing={isSharing}
         partnerJoined={partnerJoined}
         error={error}
         onCopy={handleCopy}
