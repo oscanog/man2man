@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { HeadContent, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
+import { HeadContent, Link, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 
@@ -33,6 +33,7 @@ export const Route = createRootRoute({
     ],
   }),
   shellComponent: RootDocument,
+  notFoundComponent: NotFoundPage,
 })
 
 function RootDocument() {
@@ -67,5 +68,23 @@ function RootDocument() {
         <Scripts />
       </body>
     </html>
+  )
+}
+
+function NotFoundPage() {
+  return (
+    <main className="min-h-screen bg-[#0A1628] flex flex-col items-center justify-center px-6 text-center">
+      <p className="text-6xl font-bold text-[#FF035B]">404</p>
+      <h1 className="mt-4 text-2xl font-semibold text-white">Page not found</h1>
+      <p className="mt-2 max-w-sm text-white/70">
+        The page you are looking for does not exist or has moved.
+      </p>
+      <Link
+        to="/"
+        className="mt-8 inline-flex rounded-lg bg-[#FF035B] px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+      >
+        Go to home
+      </Link>
+    </main>
   )
 }
