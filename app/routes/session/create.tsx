@@ -30,6 +30,11 @@ interface LocationData {
   accuracy: number
 }
 
+interface PartnerJoinStatus {
+  joined: boolean
+  state: 'waiting' | 'joined' | 'expired' | 'missing' | 'closed'
+}
+
 function CreateSessionPage() {
   const navigate = useNavigate()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
@@ -117,8 +122,10 @@ function CreateSessionPage() {
     if (!session?._id) return
 
     let isActive = true
+    let hasTerminalRedirected = false
     let consecutiveErrors = 0
     const maxConsecutiveErrors = 5
+    let interval: ReturnType<typeof setInterval> | null = null
 
     const pollSession = async () => {
       if (!isActive) return
@@ -126,14 +133,29 @@ function CreateSessionPage() {
       try {
         // Use the dedicated hasPartnerJoined query for efficiency
         // console.log(`[Create] Polling for partner joined - session: ${session._id}`)
-        const result = await convexQuery<{ joined: boolean }>('sessions:hasPartnerJoined', {
+        const result = await convexQuery<PartnerJoinStatus>('sessions:hasPartnerJoined', {
           sessionId: session._id,
         })
 
         // console.log(`[Create] Poll result:`, result)
         consecutiveErrors = 0 // Reset error count on success
 
-        if (result.joined) {
+        if (
+          !hasTerminalRedirected &&
+          (result.state === 'expired' || result.state === 'missing' || result.state === 'closed')
+        ) {
+          hasTerminalRedirected = true
+          isActive = false
+          if (interval) {
+            clearInterval(interval)
+          }
+
+          setError('Session expired after 5 minutes. Returning to session menu...')
+          void navigate({ to: '/session' })
+          return
+        }
+
+        if (result.joined || result.state === 'joined') {
           // console.log('[Create] Partner joined! Redirecting to map...', {
           //   sessionId: session._id,
           //   code: session.code
@@ -160,7 +182,7 @@ function CreateSessionPage() {
     pollSession()
     
     // Then poll every 2 seconds
-    const interval = setInterval(pollSession, 2000)
+    interval = setInterval(pollSession, 2000)
     
     return () => {
       isActive = false
