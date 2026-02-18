@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, useParams, Navigate } from '@tanstack/react-router'
 import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
-import { Menu, Loader2, MapPin, RefreshCw, WifiOff } from 'lucide-react'
+import { Menu, Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { storage } from '@/lib/storage'
@@ -94,10 +94,33 @@ function MapPage() {
   const consecutiveErrorsRef = useRef(0)
   const isUpdatingRef = useRef(false)
   const lastPartnerPollRef = useRef(0)
+  const hasExitedSessionRef = useRef(false)
 
   const userId = storage.getUserId()
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
+
+  const handleTerminalExit = useCallback((message: string, route: 'session' | 'join' = 'session') => {
+    if (hasExitedSessionRef.current) return
+    hasExitedSessionRef.current = true
+
+    if (updateIntervalRef.current) {
+      clearInterval(updateIntervalRef.current)
+      updateIntervalRef.current = null
+    }
+
+    setError(message)
+    setConnectionStatus('disconnected')
+    setUpdateError(null)
+
+    setTimeout(() => {
+      if (route === 'join') {
+        navigate({ to: '/session/join' })
+        return
+      }
+      navigate({ to: '/session' })
+    }, 1200)
+  }, [navigate])
 
   // Check auth
   useEffect(() => {
@@ -169,7 +192,7 @@ function MapPage() {
    * Fetch session and partner location
    */
   const fetchSessionData = useCallback(async (): Promise<{ session: Session | null; partnerLoc: Location | null; partner: User | null }> => {
-    const sessionData = await convexQuery<Session>('sessions:get', { sessionId })
+    const sessionData = await convexQuery<Session | null>('sessions:get', { sessionId })
 
     // Get partner location
     const partnerLoc = await convexQuery<Location | null>('locations:getPartnerLocation', { sessionId, userId })
@@ -188,7 +211,7 @@ function MapPage() {
    * Main update cycle with retry logic
    */
   const performUpdate = useCallback(async () => {
-    if (isUpdatingRef.current) {
+    if (isUpdatingRef.current || hasExitedSessionRef.current) {
       return
     }
 
@@ -208,14 +231,18 @@ function MapPage() {
         } catch (err) {
           consecutiveErrorsRef.current++
           const errorMessage = err instanceof Error ? err.message : 'Location update failed'
+          const normalizedErrorMessage = errorMessage.toLowerCase()
+
+          if (normalizedErrorMessage.includes('session is closed') ||
+              normalizedErrorMessage.includes('session not found')) {
+            handleTerminalExit('Session has ended. Returning to sessions...')
+            return
+          }
 
           // Check if user is not in session - redirect to join
-          if (errorMessage.toLowerCase().includes('not in session') ||
-              errorMessage.toLowerCase().includes('user not in session')) {
-            setError('You are not part of this session. Please join again.')
-            setTimeout(() => {
-              navigate({ to: '/session/join' })
-            }, 2000)
+          if (normalizedErrorMessage.includes('not in session') ||
+              normalizedErrorMessage.includes('user not in session')) {
+            handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
             return
           }
 
@@ -242,18 +269,21 @@ function MapPage() {
         setIsSessionLoaded(true)
         setPartnerLocation(partnerLoc)
 
+        if (!sessionData) {
+          handleTerminalExit('Session no longer exists. Returning to sessions...')
+          return
+        }
+
         // Check if user is part of this session
-        if (sessionData && sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
-          setError('You are not part of this session. Redirecting to join page...')
-          setTimeout(() => {
-            navigate({ to: '/session/join' })
-          }, 2000)
+        if (sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
+          handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
           return
         }
 
         // Check if session is closed
-        if (sessionData?.status === 'closed') {
-          setError('Session has been closed')
+        if (sessionData.status === 'closed') {
+          handleTerminalExit('Session has been closed. Returning to sessions...')
+          return
         }
 
         lastPartnerPollRef.current = Date.now()
@@ -264,12 +294,14 @@ function MapPage() {
     } finally {
       isUpdatingRef.current = false
     }
-  }, [myLocation, sendLocationUpdate, fetchSessionData, updateError])
+  }, [myLocation, sendLocationUpdate, fetchSessionData, updateError, handleTerminalExit, userId])
 
   /**
    * Manual retry handler
    */
   const handleManualRetry = useCallback(async () => {
+    if (hasExitedSessionRef.current) return
+
     if (!myLocation) {
       setError('Location not available')
       return
@@ -282,6 +314,17 @@ function MapPage() {
       await sendLocationUpdate(myLocation)
 
       const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
+
+      if (!sessionData || sessionData.status === 'closed') {
+        handleTerminalExit('Session has ended. Returning to sessions...')
+        return
+      }
+
+      if (sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
+        handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
+        return
+      }
+
       setSession(sessionData)
       setPartnerUser(partner)
       setPartnerLocation(partnerLoc)
@@ -291,6 +334,18 @@ function MapPage() {
       setConnectionStatus('connected')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Reconnection failed'
+      const normalizedMessage = message.toLowerCase()
+
+      if (normalizedMessage.includes('session is closed') || normalizedMessage.includes('session not found')) {
+        handleTerminalExit('Session has ended. Returning to sessions...')
+        return
+      }
+
+      if (normalizedMessage.includes('not in session') || normalizedMessage.includes('user not in session')) {
+        handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
+        return
+      }
+
       setUpdateError({
         message,
         timestamp: Date.now(),
@@ -299,11 +354,11 @@ function MapPage() {
     } finally {
       setIsManualRetrying(false)
     }
-  }, [myLocation, sendLocationUpdate, fetchSessionData])
+  }, [myLocation, sendLocationUpdate, fetchSessionData, handleTerminalExit, userId])
 
   // Set up periodic updates
   useEffect(() => {
-    if (!sessionId || !userId || !isAuthenticated) return
+    if (!sessionId || !userId || !isAuthenticated || hasExitedSessionRef.current) return
 
     performUpdate()
 
@@ -321,6 +376,11 @@ function MapPage() {
     setIsLoading(true)
     try {
       await convexMutation('sessions:close', { sessionId, userId }, { maxRetries: 3 })
+      hasExitedSessionRef.current = true
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current)
+        updateIntervalRef.current = null
+      }
       navigate({ to: '/session' })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to end session'
