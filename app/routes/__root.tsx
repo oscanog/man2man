@@ -4,6 +4,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import { PWAMeta } from '../components/PWAMeta'
+import { usePresenceHeartbeat } from '../hooks/usePresenceHeartbeat'
 import { useServiceWorker } from '../hooks/useServiceWorker'
 import appCss from '../styles/styles.css?url'
 
@@ -39,9 +40,24 @@ export const Route = createRootRoute({
 function RootDocument() {
   // Register service worker on mount
   const { register } = useServiceWorker()
+  usePresenceHeartbeat()
 
   useEffect(() => {
-    register()
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      return
+    }
+
+    if (import.meta.env.PROD) {
+      void register()
+      return
+    }
+
+    // In development, remove any old SW to avoid stale cached UI/assets.
+    void navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        void registration.unregister()
+      })
+    })
   }, [register])
 
   return (

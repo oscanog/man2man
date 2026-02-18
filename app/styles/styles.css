@@ -29,6 +29,34 @@
   /* Border Colors */
   --color-border: rgba(255, 255, 255, 0.1);
   --color-border-focus: #FF035B;
+
+  /* Drawer (online users sidebar) */
+  --color-drawer-surface: rgba(20, 29, 43, 0.95);
+  --color-drawer-border: rgba(255, 255, 255, 0.14);
+  --color-drawer-text: #ffffff;
+  --color-drawer-text-muted: #a0aec0;
+  --color-drawer-backdrop: rgba(6, 10, 17, 0.45);
+  --color-drawer-item-bg: rgba(255, 255, 255, 0.04);
+  --color-drawer-avatar-bg: rgba(255, 255, 255, 0.08);
+  --color-drawer-self-bg: rgba(255, 3, 91, 0.16);
+  --color-drawer-self-border: rgba(255, 3, 91, 0.42);
+  --color-drawer-skeleton: rgba(255, 255, 255, 0.08);
+  --color-drawer-muted-bg: rgba(255, 255, 255, 0.06);
+  --color-drawer-error-bg: rgba(255, 23, 68, 0.16);
+  --color-drawer-error-border: rgba(255, 23, 68, 0.42);
+  --color-drawer-error-text: #ff97aa;
+  --color-drawer-accent-soft: rgba(255, 3, 91, 0.16);
+
+  /* Modal (session invite dialogs) */
+  --color-modal-surface: rgba(20, 29, 43, 0.98);
+  --color-modal-border: rgba(255, 255, 255, 0.14);
+  --color-modal-text: #ffffff;
+  --color-modal-text-muted: #a0aec0;
+  --color-modal-muted-bg: rgba(255, 255, 255, 0.06);
+  --color-modal-backdrop: rgba(6, 10, 17, 0.48);
+  --color-modal-error-bg: rgba(255, 23, 68, 0.16);
+  --color-modal-error-border: rgba(255, 23, 68, 0.42);
+  --color-modal-error-text: #ff97aa;
   
   /* Spacing Scale (Mobile-first: 4px base) */
   --space-1: 4px;
@@ -66,6 +94,89 @@
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+:root[data-theme='light'] {
+  --color-drawer-surface: rgba(248, 251, 255, 0.98);
+  --color-drawer-border: rgba(15, 23, 42, 0.14);
+  --color-drawer-text: #0f172a;
+  --color-drawer-text-muted: #475569;
+  --color-drawer-backdrop: rgba(11, 18, 32, 0.2);
+  --color-drawer-item-bg: rgba(15, 23, 42, 0.04);
+  --color-drawer-avatar-bg: rgba(15, 23, 42, 0.08);
+  --color-drawer-self-bg: rgba(255, 3, 91, 0.08);
+  --color-drawer-self-border: rgba(255, 3, 91, 0.36);
+  --color-drawer-skeleton: rgba(15, 23, 42, 0.09);
+  --color-drawer-muted-bg: rgba(15, 23, 42, 0.05);
+  --color-drawer-error-bg: rgba(255, 23, 68, 0.1);
+  --color-drawer-error-border: rgba(255, 23, 68, 0.24);
+  --color-drawer-error-text: #b42318;
+  --color-drawer-accent-soft: rgba(255, 3, 91, 0.12);
+  --color-modal-surface: rgba(248, 251, 255, 0.98);
+  --color-modal-border: rgba(15, 23, 42, 0.14);
+  --color-modal-text: #0f172a;
+  --color-modal-text-muted: #475569;
+  --color-modal-muted-bg: rgba(15, 23, 42, 0.05);
+  --color-modal-backdrop: rgba(11, 18, 32, 0.2);
+  --color-modal-error-bg: rgba(255, 23, 68, 0.1);
+  --color-modal-error-border: rgba(255, 23, 68, 0.24);
+  --color-modal-error-text: #b42318;
+}
+
+:root[data-theme='dark'] {
+  --color-drawer-surface: rgba(20, 29, 43, 0.95);
+  --color-drawer-border: rgba(255, 255, 255, 0.14);
+  --color-drawer-text: #ffffff;
+  --color-drawer-text-muted: #a0aec0;
+  --color-drawer-backdrop: rgba(6, 10, 17, 0.45);
+  --color-drawer-item-bg: rgba(255, 255, 255, 0.04);
+  --color-drawer-avatar-bg: rgba(255, 255, 255, 0.08);
+  --color-drawer-self-bg: rgba(255, 3, 91, 0.16);
+  --color-drawer-self-border: rgba(255, 3, 91, 0.42);
+  --color-drawer-skeleton: rgba(255, 255, 255, 0.08);
+  --color-drawer-muted-bg: rgba(255, 255, 255, 0.06);
+  --color-drawer-error-bg: rgba(255, 23, 68, 0.16);
+  --color-drawer-error-border: rgba(255, 23, 68, 0.42);
+  --color-drawer-error-text: #ff97aa;
+  --color-drawer-accent-soft: rgba(255, 3, 91, 0.16);
+  --color-modal-surface: rgba(20, 29, 43, 0.98);
+  --color-modal-border: rgba(255, 255, 255, 0.14);
+  --color-modal-text: #ffffff;
+  --color-modal-text-muted: #a0aec0;
+  --color-modal-muted-bg: rgba(255, 255, 255, 0.06);
+  --color-modal-backdrop: rgba(6, 10, 17, 0.48);
+  --color-modal-error-bg: rgba(255, 23, 68, 0.16);
+  --color-modal-error-border: rgba(255, 23, 68, 0.42);
+  --color-modal-error-text: #ff97aa;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-drawer-surface: rgba(248, 251, 255, 0.98);
+    --color-drawer-border: rgba(15, 23, 42, 0.14);
+    --color-drawer-text: #0f172a;
+    --color-drawer-text-muted: #475569;
+    --color-drawer-backdrop: rgba(11, 18, 32, 0.2);
+    --color-drawer-item-bg: rgba(15, 23, 42, 0.04);
+    --color-drawer-avatar-bg: rgba(15, 23, 42, 0.08);
+    --color-drawer-self-bg: rgba(255, 3, 91, 0.08);
+    --color-drawer-self-border: rgba(255, 3, 91, 0.36);
+    --color-drawer-skeleton: rgba(15, 23, 42, 0.09);
+    --color-drawer-muted-bg: rgba(15, 23, 42, 0.05);
+    --color-drawer-error-bg: rgba(255, 23, 68, 0.1);
+    --color-drawer-error-border: rgba(255, 23, 68, 0.24);
+    --color-drawer-error-text: #b42318;
+    --color-drawer-accent-soft: rgba(255, 3, 91, 0.12);
+    --color-modal-surface: rgba(248, 251, 255, 0.98);
+    --color-modal-border: rgba(15, 23, 42, 0.14);
+    --color-modal-text: #0f172a;
+    --color-modal-text-muted: #475569;
+    --color-modal-muted-bg: rgba(15, 23, 42, 0.05);
+    --color-modal-backdrop: rgba(11, 18, 32, 0.2);
+    --color-modal-error-bg: rgba(255, 23, 68, 0.1);
+    --color-modal-error-border: rgba(255, 23, 68, 0.24);
+    --color-modal-error-text: #b42318;
+  }
 }
 
 /* ============================================

@@ -39,3 +39,12 @@ export {
   useOnlineStatus,
   useNotifications,
 } from './useServiceWorker'
+
+// Presence and online users hooks
+export { usePresenceHeartbeat } from './usePresenceHeartbeat'
+export { useOnlineUsers } from './useOnlineUsers'
+export type { OnlineUser } from './useOnlineUsers'
+
+// Invite/session handshake hooks
+export { useSessionInvites } from './useSessionInvites'
+export type { IncomingInvite, OutgoingInvite, InviteStatus } from './useSessionInvites'

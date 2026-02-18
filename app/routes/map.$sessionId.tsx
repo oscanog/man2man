@@ -1,8 +1,17 @@
 import { createFileRoute, useNavigate, useParams, Navigate } from '@tanstack/react-router'
 import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
 import { Menu, Loader2, RefreshCw, WifiOff } from 'lucide-react'
+import {
+  IncomingInviteDialog,
+  InviteSendConfirmDialog,
+  OutgoingPendingDialog,
+} from '@/components/modals/SessionInviteDialogs'
+import { OnlineUsersDrawer } from '@/components/sidebar/OnlineUsersDrawer'
+import type { OnlineUser } from '@/hooks'
+import { useSessionInvites } from '@/hooks/useSessionInvites'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
+import { useOnlineUsers } from '@/hooks/useOnlineUsers'
 import { storage } from '@/lib/storage'
 
 // Lazy load map component to avoid SSR issues
@@ -82,6 +91,8 @@ function MapPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSessionLoaded, setIsSessionLoaded] = useState(false)
+  const [isUsersDrawerOpen, setIsUsersDrawerOpen] = useState(false)
+  const [selectedInviteTarget, setSelectedInviteTarget] = useState<OnlineUser | null>(null)
 
   // Connection and retry state
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('connected')
@@ -95,10 +106,25 @@ function MapPage() {
   const isUpdatingRef = useRef(false)
   const lastPartnerPollRef = useRef(0)
   const hasExitedSessionRef = useRef(false)
+  const handledInviteSessionIdRef = useRef<string | null>(null)
 
   const userId = storage.getUserId()
+  const username = storage.getUsername()
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
+  const { users: onlineUsers, isLoading: isOnlineUsersLoading, error: onlineUsersError } = useOnlineUsers(isUsersDrawerOpen)
+  const {
+    incomingInvite,
+    outgoingInvite,
+    actionError: inviteActionError,
+    isSendingInvite,
+    isRespondingInvite,
+    isCancellingInvite,
+    sendInvite,
+    respondToInvite,
+    cancelOutgoingInvite,
+    clearActionError,
+  } = useSessionInvites(userId)
 
   const handleTerminalExit = useCallback((message: string, route: 'session' | 'join' = 'session') => {
     if (hasExitedSessionRef.current) return
@@ -110,6 +136,8 @@ function MapPage() {
     }
 
     setError(message)
+    setIsUsersDrawerOpen(false)
+    setSelectedInviteTarget(null)
     setConnectionStatus('disconnected')
     setUpdateError(null)
 
@@ -126,6 +154,24 @@ function MapPage() {
   useEffect(() => {
     setIsAuthenticated(storage.isAuthenticated())
   }, [])
+
+  useEffect(() => {
+    if (!outgoingInvite || outgoingInvite.status !== 'accepted' || !outgoingInvite.sessionId) {
+      return
+    }
+
+    if (handledInviteSessionIdRef.current === outgoingInvite.sessionId) {
+      return
+    }
+
+    handledInviteSessionIdRef.current = outgoingInvite.sessionId
+    setSelectedInviteTarget(null)
+    setIsUsersDrawerOpen(false)
+
+    if (outgoingInvite.sessionId !== sessionId) {
+      navigate({ to: '/map/$sessionId', params: { sessionId: outgoingInvite.sessionId } })
+    }
+  }, [outgoingInvite, navigate, sessionId])
 
   // Watch location
   useEffect(() => {
@@ -371,12 +417,74 @@ function MapPage() {
     }
   }, [sessionId, userId, isAuthenticated, performUpdate])
 
+  const handleOpenUsersDrawer = useCallback(() => {
+    setIsUsersDrawerOpen(true)
+  }, [])
+
+  const handleCloseUsersDrawer = useCallback(() => {
+    setIsUsersDrawerOpen(false)
+  }, [])
+
+  const handleOnlineUserClick = useCallback((user: OnlineUser) => {
+    setIsUsersDrawerOpen(false)
+    clearActionError()
+    setSelectedInviteTarget(user)
+  }, [clearActionError])
+
+  const handleDismissConfirmInvite = useCallback(() => {
+    setSelectedInviteTarget(null)
+    clearActionError()
+  }, [clearActionError])
+
+  const handleConfirmSendInvite = useCallback(async () => {
+    if (!selectedInviteTarget) {
+      return
+    }
+
+    try {
+      await sendInvite(selectedInviteTarget._id)
+      setSelectedInviteTarget(null)
+    } catch {
+      // Error is surfaced by inviteActionError state.
+    }
+  }, [selectedInviteTarget, sendInvite])
+
+  const handleRespondInvite = useCallback(async (accept: boolean) => {
+    if (!incomingInvite) {
+      return
+    }
+
+    try {
+      const result = await respondToInvite(incomingInvite._id, accept)
+      if (accept && result.status === 'accepted' && result.sessionId && result.sessionId !== sessionId) {
+        handledInviteSessionIdRef.current = result.sessionId
+        navigate({ to: '/map/$sessionId', params: { sessionId: result.sessionId } })
+      }
+    } catch {
+      // Error is surfaced by inviteActionError state.
+    }
+  }, [incomingInvite, navigate, respondToInvite, sessionId])
+
+  const handleCancelOutgoing = useCallback(async () => {
+    if (!outgoingInvite || outgoingInvite.status !== 'pending') {
+      return
+    }
+
+    try {
+      await cancelOutgoingInvite(outgoingInvite._id)
+    } catch {
+      // Error is surfaced by inviteActionError state.
+    }
+  }, [cancelOutgoingInvite, outgoingInvite])
+
   const handleEndSession = async () => {
     if (!sessionId || !userId) return
     setIsLoading(true)
     try {
       await convexMutation('sessions:close', { sessionId, userId }, { maxRetries: 3 })
       hasExitedSessionRef.current = true
+      setIsUsersDrawerOpen(false)
+      setSelectedInviteTarget(null)
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
         updateIntervalRef.current = null
@@ -434,6 +542,42 @@ function MapPage() {
 
   return (
     <div className="relative h-screen w-full">
+      <InviteSendConfirmDialog
+        isOpen={Boolean(selectedInviteTarget)}
+        targetName={selectedInviteTarget?.username ?? 'this user'}
+        isLoading={isSendingInvite}
+        error={inviteActionError}
+        onCancel={handleDismissConfirmInvite}
+        onConfirm={() => { void handleConfirmSendInvite() }}
+      />
+
+      <IncomingInviteDialog
+        isOpen={Boolean(incomingInvite)}
+        requesterName={incomingInvite?.requesterName ?? 'Someone'}
+        isLoading={isRespondingInvite}
+        error={inviteActionError}
+        onDecline={() => { void handleRespondInvite(false) }}
+        onAccept={() => { void handleRespondInvite(true) }}
+      />
+
+      <OutgoingPendingDialog
+        isOpen={Boolean(outgoingInvite && outgoingInvite.status === 'pending')}
+        recipientName={outgoingInvite?.recipientName ?? 'user'}
+        isCancelling={isCancellingInvite}
+        onCancelInvite={() => { void handleCancelOutgoing() }}
+      />
+
+      <OnlineUsersDrawer
+        isOpen={isUsersDrawerOpen}
+        users={onlineUsers}
+        currentUserId={userId}
+        currentUsername={username}
+        isLoading={isOnlineUsersLoading}
+        error={onlineUsersError?.message ?? null}
+        onUserClick={handleOnlineUserClick}
+        onClose={handleCloseUsersDrawer}
+      />
+
       {/* Map - Client only via lazy import */}
       <Suspense
         fallback={
@@ -451,7 +595,11 @@ function MapPage() {
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 z-[400] p-4">
         <div className="flex items-start justify-between">
-          <button className="w-11 h-11 bg-[#141D2B]/90 backdrop-blur-sm rounded-xl flex items-center justify-center">
+          <button
+            onClick={handleOpenUsersDrawer}
+            className="w-11 h-11 bg-[#141D2B]/90 backdrop-blur-sm rounded-xl flex items-center justify-center"
+            aria-label="Open online users sidebar"
+          >
             <Menu className="w-6 h-6 text-white" />
           </button>
 

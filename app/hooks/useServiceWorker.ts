@@ -128,16 +128,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
     window.location.reload();
   }, [state.registration]);
 
-  // Auto-register on mount (in production)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    // Only auto-register in production
-    if (process.env.NODE_ENV === 'production') {
-      register();
-    }
-  }, [register]);
-
   // Listen for messages from service worker
   useEffect(() => {
     if (!state.isSupported || typeof window === 'undefined') return;
