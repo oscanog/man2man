@@ -57,6 +57,14 @@
   --color-modal-error-bg: rgba(255, 23, 68, 0.16);
   --color-modal-error-border: rgba(255, 23, 68, 0.42);
   --color-modal-error-text: #ff97aa;
+
+  /* Session details bottom sheet */
+  --color-sheet-surface: rgba(20, 29, 43, 0.96);
+  --color-sheet-border: rgba(255, 255, 255, 0.16);
+  --color-sheet-handle: rgba(255, 255, 255, 0.28);
+  --color-sheet-tip: rgba(255, 255, 255, 0.04);
+  --color-sheet-text: #ffffff;
+  --color-sheet-muted: #a0aec0;
   
   /* Spacing Scale (Mobile-first: 4px base) */
   --space-1: 4px;
@@ -121,6 +129,12 @@
   --color-modal-error-bg: rgba(255, 23, 68, 0.1);
   --color-modal-error-border: rgba(255, 23, 68, 0.24);
   --color-modal-error-text: #b42318;
+  --color-sheet-surface: rgba(248, 251, 255, 0.98);
+  --color-sheet-border: rgba(15, 23, 42, 0.16);
+  --color-sheet-handle: rgba(15, 23, 42, 0.28);
+  --color-sheet-tip: rgba(15, 23, 42, 0.05);
+  --color-sheet-text: #0f172a;
+  --color-sheet-muted: #475569;
 }
 
 :root[data-theme='dark'] {
@@ -148,6 +162,12 @@
   --color-modal-error-bg: rgba(255, 23, 68, 0.16);
   --color-modal-error-border: rgba(255, 23, 68, 0.42);
   --color-modal-error-text: #ff97aa;
+  --color-sheet-surface: rgba(20, 29, 43, 0.96);
+  --color-sheet-border: rgba(255, 255, 255, 0.16);
+  --color-sheet-handle: rgba(255, 255, 255, 0.28);
+  --color-sheet-tip: rgba(255, 255, 255, 0.04);
+  --color-sheet-text: #ffffff;
+  --color-sheet-muted: #a0aec0;
 }
 
 @media (prefers-color-scheme: light) {
@@ -176,6 +196,12 @@
     --color-modal-error-bg: rgba(255, 23, 68, 0.1);
     --color-modal-error-border: rgba(255, 23, 68, 0.24);
     --color-modal-error-text: #b42318;
+    --color-sheet-surface: rgba(248, 251, 255, 0.98);
+    --color-sheet-border: rgba(15, 23, 42, 0.16);
+    --color-sheet-handle: rgba(15, 23, 42, 0.28);
+    --color-sheet-tip: rgba(15, 23, 42, 0.05);
+    --color-sheet-text: #0f172a;
+    --color-sheet-muted: #475569;
   }
 }
 

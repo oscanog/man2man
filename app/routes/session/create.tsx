@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router'
 import { useState, useEffect, useCallback, Suspense, lazy } from 'react'
-import { User, Copy, Share2, Loader2, Users } from 'lucide-react'
+import { User, Loader2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { storage } from '@/lib/storage'
+import { SessionDetailsBottomSheet } from '@/components/session/SessionDetailsBottomSheet'
 
 // Lazy load map component to avoid SSR issues
 const Map = lazy(() => import('@/components/Map').then(m => ({ default: m.Map })))
@@ -36,6 +37,7 @@ function CreateSessionPage() {
   const [error, setError] = useState<string | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [code, setCode] = useState<string>('')
+  const [sessionCreatedAt, setSessionCreatedAt] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const [location, setLocation] = useState<LocationData | null>(null)
   const [isMapReady, setIsMapReady] = useState(false)
@@ -176,6 +178,7 @@ function CreateSessionPage() {
     // Clear any previous session data
     setSession(null)
     setCode('')
+    setSessionCreatedAt(null)
     setPartnerJoined(false)
 
     try {
@@ -194,6 +197,7 @@ function CreateSessionPage() {
         status: 'waiting',
       })
       setCode(result.code)
+      setSessionCreatedAt(Date.now())
       startWatchingLocation()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create session')
@@ -311,67 +315,25 @@ function CreateSessionPage() {
         )}
       </div>
 
-      {/* Bottom Sheet */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#141D2B] rounded-t-3xl p-6 z-[400]">
-        <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-6" />
-
-        <div className="text-center">
-          <p className="text-white/60 text-sm mb-4">Your Session Code</p>
-
-          <div className="text-4xl font-bold text-white tracking-[0.5em] mb-6">
-            {code.split('').join(' ')}
-          </div>
-
-          <div className="flex gap-3 mb-6">
-            <Button variant="secondary" onClick={handleCopy} className="flex-1">
-              {copied ? 'Copied!' : <><Copy className="w-4 h-4 mr-2" />Copy</>}
-            </Button>
-            <Button variant="secondary" onClick={handleShare} className="flex-1">
-              <Share2 className="w-4 h-4 mr-2" />Share
-            </Button>
-          </div>
-
-          {partnerJoined ? (
-            <div className="mb-6">
-              <div className="flex items-center justify-center gap-2 text-green-500 mb-3">
-                <Users className="w-4 h-4" />
-                <span>Partner joined!</span>
-              </div>
-              <Button 
-                onClick={() => navigate({ to: '/map/$sessionId', params: { sessionId: session._id } })}
-                className="w-full bg-green-500 hover:bg-green-600"
-              >
-                Go to Map
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center gap-2 text-white/60 mb-6">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Waiting for partner to join...</span>
-            </div>
-          )}
-
-          {error && <p className="text-red-400 mb-4">{error}</p>}
-
-          <Button variant="tertiary" onClick={handleCancel} className="w-full mb-3">
-            Cancel Session
-          </Button>
-          
-          <Button 
-            variant="secondary" 
-            onClick={() => {
-              // console.log('[Create] Manual refresh - creating new session')
-              setSession(null)
-              setCode('')
-              setPartnerJoined(false)
-              handleCreate()
-            }} 
-            className="w-full"
-          >
-            Create New Session
-          </Button>
-        </div>
-      </div>
+      <SessionDetailsBottomSheet
+        code={code}
+        createdAt={sessionCreatedAt}
+        copied={copied}
+        partnerJoined={partnerJoined}
+        error={error}
+        onCopy={handleCopy}
+        onShare={handleShare}
+        onCancel={handleCancel}
+        onCreateNew={() => {
+          // console.log('[Create] Manual refresh - creating new session')
+          setSession(null)
+          setCode('')
+          setSessionCreatedAt(null)
+          setPartnerJoined(false)
+          handleCreate()
+        }}
+        onGoToMap={() => navigate({ to: '/map/$sessionId', params: { sessionId: session._id } })}
+      />
     </div>
   )
 }
