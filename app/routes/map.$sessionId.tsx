@@ -125,6 +125,23 @@ function MapPage() {
   const handledInviteSessionIdRef = useRef<string | null>(null)
   const terminalSessionSignalsRef = useRef(0)
   const nonParticipantSignalsRef = useRef(0)
+  const mapFlowIdRef = useRef(`map-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+  const lastParticipantSnapshotRef = useRef<string | null>(null)
+  const lastSessionSnapshotRef = useRef<string | null>(null)
+  const logMap = useCallback((event: string, payload?: unknown) => {
+    if (payload !== undefined) {
+      console.log(`[MapFlow:${mapFlowIdRef.current}] ${event}`, payload)
+      return
+    }
+    console.log(`[MapFlow:${mapFlowIdRef.current}] ${event}`)
+  }, [])
+  const warnMap = useCallback((event: string, payload?: unknown) => {
+    if (payload !== undefined) {
+      console.warn(`[MapFlow:${mapFlowIdRef.current}] ${event}`, payload)
+      return
+    }
+    console.warn(`[MapFlow:${mapFlowIdRef.current}] ${event}`)
+  }, [])
 
   const userId = storage.getUserId()
   const username = storage.getUsername()
@@ -153,7 +170,11 @@ function MapPage() {
   } = useSessionInvites(userId)
 
   const handleTerminalExit = useCallback((message: string, route: 'session' | 'join' = 'session') => {
-    if (hasExitedSessionRef.current) return
+    if (hasExitedSessionRef.current) {
+      warnMap('terminal-exit:ignored-already-exited', { message, route })
+      return
+    }
+    warnMap('terminal-exit:triggered', { message, route })
     hasExitedSessionRef.current = true
 
     if (updateIntervalRef.current) {
@@ -172,17 +193,32 @@ function MapPage() {
 
     setTimeout(() => {
       if (route === 'join') {
+        warnMap('terminal-exit:navigate', { to: '/session/join' })
         navigate({ to: '/session/join', search: { code: undefined, from: undefined } })
         return
       }
+      warnMap('terminal-exit:navigate', { to: '/session' })
       navigate({ to: '/session' })
     }, 1200)
-  }, [navigate])
+  }, [navigate, warnMap])
 
   // Check auth
   useEffect(() => {
-    setIsAuthenticated(storage.isAuthenticated())
-  }, [])
+    const auth = storage.getAuth()
+    const authenticated = storage.isAuthenticated()
+    logMap('route-enter', {
+      sessionId,
+      authenticated,
+      userId: auth.userId,
+      username: auth.username,
+      deviceId: auth.deviceId ? `${auth.deviceId.slice(0, 8)}...` : null,
+    })
+    setIsAuthenticated(authenticated)
+
+    return () => {
+      logMap('route-exit', { sessionId })
+    }
+  }, [logMap, sessionId])
 
   useEffect(() => {
     if (!outgoingInvite || outgoingInvite.status !== 'accepted' || !outgoingInvite.sessionId) {
@@ -196,11 +232,13 @@ function MapPage() {
     handledInviteSessionIdRef.current = outgoingInvite.sessionId
     setSelectedInviteTarget(null)
     setIsUsersDrawerOpen(false)
+    logMap('invite-accepted', { outgoingInviteSessionId: outgoingInvite.sessionId, currentSessionId: sessionId })
 
     if (outgoingInvite.sessionId !== sessionId) {
+      logMap('invite-accepted:navigate-map', { sessionId: outgoingInvite.sessionId })
       navigate({ to: '/map/$sessionId', params: { sessionId: outgoingInvite.sessionId } })
     }
-  }, [outgoingInvite, navigate, sessionId])
+  }, [outgoingInvite, navigate, sessionId, logMap])
 
   // Watch location
   useEffect(() => {
@@ -208,13 +246,19 @@ function MapPage() {
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        logMap('geolocation:initial-success', {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        })
         setMyLocation({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy
         })
       },
-      () => {
+      (geoErr) => {
+        warnMap('geolocation:initial-error', geoErr)
         setError('Unable to access your location. Please enable location services.')
       },
       { enableHighAccuracy: true }
@@ -226,12 +270,12 @@ function MapPage() {
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy
       }),
-      () => { /* location watch error - handled by error state */ },
+      (geoErr) => { warnMap('geolocation:watch-error', geoErr) },
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
 
     return () => navigator.geolocation.clearWatch(watchId)
-  }, [isAuthenticated])
+  }, [isAuthenticated, logMap, warnMap])
 
   /**
    * Send location update with retry logic
@@ -253,26 +297,42 @@ function MapPage() {
       return true
 
     } catch (err) {
+      warnMap('location-update:failed-attempt', {
+        attempt: attempt + 1,
+        sessionId,
+        userId,
+        error: err instanceof Error ? err.message : err,
+      })
       if (attempt < maxRetries) {
         const delay = getBackoffDelay(attempt, 800)
+        warnMap('location-update:retry-scheduled', { nextAttempt: attempt + 2, delay })
         await new Promise(resolve => setTimeout(resolve, delay))
         return sendLocationUpdate(location, attempt + 1)
       }
 
+      warnMap('location-update:exhausted-retries', { sessionId, userId })
       throw err
     }
-  }, [sessionId, userId])
+  }, [sessionId, userId, warnMap])
 
   const fetchParticipantState = useCallback(async (): Promise<ParticipantState> => {
     if (!userId) {
+      warnMap('participant-state:blocked-missing-user')
       throw new Error('User not authenticated')
     }
 
-    return await convexQuery<ParticipantState>('sessions:getParticipantState', {
+    const state = await convexQuery<ParticipantState>('sessions:getParticipantState', {
       sessionId,
       userId,
     })
-  }, [sessionId, userId])
+    const snapshot = `${state.exists}|${state.status}|${state.isParticipant}|${state.role}|${state.canSendLocation}`
+    if (lastParticipantSnapshotRef.current !== snapshot) {
+      logMap('participant-state:changed', { state })
+      lastParticipantSnapshotRef.current = snapshot
+    }
+
+    return state
+  }, [sessionId, userId, logMap, warnMap])
 
   /**
    * Fetch session and partner location
@@ -311,6 +371,10 @@ function MapPage() {
 
         if (!participantState.exists || participantState.status === 'closed' || participantState.status === 'missing') {
           terminalSessionSignalsRef.current += 1
+          warnMap('perform-update:terminal-signal', {
+            count: terminalSessionSignalsRef.current,
+            state: participantState,
+          })
           if (terminalSessionSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
             handleTerminalExit('Session has ended. Returning to sessions...')
             return
@@ -321,6 +385,10 @@ function MapPage() {
 
         if (participantState.exists && !participantState.isParticipant) {
           nonParticipantSignalsRef.current += 1
+          warnMap('perform-update:not-participant-signal', {
+            count: nonParticipantSignalsRef.current,
+            state: participantState,
+          })
           if (nonParticipantSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
             handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
             return
@@ -328,7 +396,8 @@ function MapPage() {
         } else {
           nonParticipantSignalsRef.current = 0
         }
-      } catch {
+      } catch (err) {
+        warnMap('perform-update:participant-state-query-failed', err)
         // Participant-state query can fail on transient network issues.
       }
 
@@ -350,6 +419,10 @@ function MapPage() {
           if (normalizedErrorMessage.includes('session is closed') ||
               normalizedErrorMessage.includes('session not found')) {
             terminalSessionSignalsRef.current += 1
+            warnMap('perform-update:location-terminal-error', {
+              count: terminalSessionSignalsRef.current,
+              errorMessage,
+            })
             if (terminalSessionSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
               handleTerminalExit('Session has ended. Returning to sessions...')
               return
@@ -357,6 +430,10 @@ function MapPage() {
           } else if (normalizedErrorMessage.includes('not in session') ||
               normalizedErrorMessage.includes('user not in session')) {
             nonParticipantSignalsRef.current += 1
+            warnMap('perform-update:location-membership-error', {
+              count: nonParticipantSignalsRef.current,
+              errorMessage,
+            })
             if (nonParticipantSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
               handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
               return
@@ -382,8 +459,21 @@ function MapPage() {
         const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
 
         if (!sessionData) {
+          warnMap('perform-update:session-null-snapshot')
           // Avoid immediate redirect on a single null snapshot.
           return
+        }
+
+        const sessionSnapshot = `${sessionData._id}|${sessionData.status}|${sessionData.user1Id}|${sessionData.user2Id ?? 'none'}`
+        if (lastSessionSnapshotRef.current !== sessionSnapshot) {
+          logMap('perform-update:session-changed', {
+            sessionId: sessionData._id,
+            status: sessionData.status,
+            user1Id: sessionData.user1Id,
+            user2Id: sessionData.user2Id,
+            partner: partner?.username ?? null,
+          })
+          lastSessionSnapshotRef.current = sessionSnapshot
         }
 
         setSession(sessionData)
@@ -391,14 +481,15 @@ function MapPage() {
         setIsSessionLoaded(true)
         setPartnerLocation(partnerLoc)
         lastPartnerPollRef.current = Date.now()
-      } catch {
+      } catch (err) {
+        warnMap('perform-update:session-fetch-failed', err)
         // Session data fetch failed - will retry on next cycle.
       }
 
     } finally {
       isUpdatingRef.current = false
     }
-  }, [myLocation, sendLocationUpdate, fetchParticipantState, fetchSessionData, updateError, handleTerminalExit])
+  }, [myLocation, sendLocationUpdate, fetchParticipantState, fetchSessionData, updateError, handleTerminalExit, logMap, warnMap])
 
   /**
    * Manual retry handler
@@ -406,12 +497,16 @@ function MapPage() {
   const handleManualRetry = useCallback(async () => {
     if (hasExitedSessionRef.current) return
 
+    logMap('manual-retry:start', { hasLocation: !!myLocation, sessionId, userId })
+
     if (!userId) {
+      warnMap('manual-retry:blocked-missing-user')
       setError('User not authenticated')
       return
     }
 
     if (!myLocation) {
+      warnMap('manual-retry:blocked-no-location')
       setError('Location not available')
       return
     }
@@ -423,11 +518,13 @@ function MapPage() {
       const participantState = await fetchParticipantState()
 
       if (!participantState.exists || participantState.status === 'closed' || participantState.status === 'missing') {
+        warnMap('manual-retry:terminal-state', { participantState })
         handleTerminalExit('Session has ended. Returning to sessions...')
         return
       }
 
       if (!participantState.isParticipant) {
+        warnMap('manual-retry:not-participant', { participantState })
         handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
         return
       }
@@ -449,7 +546,9 @@ function MapPage() {
       consecutiveErrorsRef.current = 0
       setUpdateError(null)
       setConnectionStatus('connected')
+      logMap('manual-retry:success')
     } catch (err) {
+      warnMap('manual-retry:failed', err)
       const message = err instanceof Error ? err.message : 'Reconnection failed'
       const normalizedMessage = message.toLowerCase()
 
@@ -471,22 +570,24 @@ function MapPage() {
     } finally {
       setIsManualRetrying(false)
     }
-  }, [myLocation, userId, fetchParticipantState, sendLocationUpdate, fetchSessionData, handleTerminalExit])
+  }, [myLocation, userId, fetchParticipantState, sendLocationUpdate, fetchSessionData, handleTerminalExit, logMap, warnMap, sessionId])
 
   // Set up periodic updates
   useEffect(() => {
     if (!sessionId || !userId || !isAuthenticated || hasExitedSessionRef.current) return
 
+    logMap('update-loop:start', { sessionId, userId })
     performUpdate()
 
     updateIntervalRef.current = setInterval(performUpdate, 2000)
 
     return () => {
+      logMap('update-loop:stop', { sessionId, userId })
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
       }
     }
-  }, [sessionId, userId, isAuthenticated, performUpdate])
+  }, [sessionId, userId, isAuthenticated, performUpdate, logMap])
 
   const handleOpenUsersDrawer = useCallback(() => {
     setAlreadyConnectedName(null)
