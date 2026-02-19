@@ -28,28 +28,15 @@ function SessionHomePage() {
 
     const activeUserId = storage.getUserId()
     if (!activeUserId || activeUserId !== pending.userId) {
-      console.warn('[JoinFlow:resume] clearing pending handoff due to user mismatch', {
-        activeUserId,
-        pendingUserId: pending.userId,
-        sessionId: pending.sessionId,
-      })
       clearPendingJoinHandoff()
       return
     }
 
     if (!isPendingJoinFresh(pending)) {
-      console.warn('[JoinFlow:resume] clearing stale pending handoff', {
-        sessionId: pending.sessionId,
-        createdAt: pending.createdAt,
-      })
       clearPendingJoinHandoff()
       return
     }
 
-    console.warn('[JoinFlow:resume] detected unexpected fallback to /session, resuming map handoff', {
-      sessionId: pending.sessionId,
-      source: pending.source,
-    })
     clearPendingJoinHandoff()
     navigate({ to: '/map/$sessionId', params: { sessionId: pending.sessionId } })
   }, [navigate])

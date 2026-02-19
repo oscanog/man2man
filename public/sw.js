@@ -33,31 +33,23 @@ function isStaticAssetRequest(pathname) {
 
 async function precacheAssets() {
   const cache = await caches.open(CACHE_NAME);
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     STATIC_ASSETS.map(async (asset) => {
       try {
         await cache.add(asset);
-        console.log("[SWFlow] precache success", asset);
-      } catch (err) {
-        console.warn("[SWFlow] precache skipped", asset, err);
+      } catch {
+        // Ignore missing optional assets in precache list.
       }
     }),
   );
-
-  const failed = results.filter((result) => result.status === "rejected").length;
-  if (failed > 0) {
-    console.warn("[SWFlow] precache completed with failures", { failed });
-  }
 }
 
 self.addEventListener("install", (event) => {
-  console.log("[SWFlow] installing...");
   event.waitUntil(precacheAssets());
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SWFlow] activating...");
   event.waitUntil(
     caches
       .keys()
@@ -65,7 +57,6 @@ self.addEventListener("activate", (event) => {
         Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== CACHE_NAME) {
-              console.log("[SWFlow] deleting old cache", cacheName);
               return caches.delete(cacheName);
             }
             return Promise.resolve(false);
@@ -105,11 +96,7 @@ async function networkFirstNavigation(event, cache) {
       void cache.put(event.request, networkResponse.clone());
     }
     return networkResponse;
-  } catch (error) {
-    console.warn("[SWFlow] navigation network failed, falling back to cache", {
-      url: event.request.url,
-      error,
-    });
+  } catch {
 
     const cachedResponse = await cache.match(event.request);
     if (cachedResponse) {
@@ -143,7 +130,6 @@ self.addEventListener("fetch", (event) => {
         try {
           return await cacheFirst(event, cache);
         } catch (error) {
-          console.warn("[SWFlow] static asset fetch failed", { url: event.request.url, error });
           const cached = await cache.match(event.request);
           if (cached) return cached;
           throw error;
@@ -158,10 +144,6 @@ self.addEventListener("fetch", (event) => {
         }
         return networkResponse;
       } catch (error) {
-        console.warn("[SWFlow] network-first fallback to cache", {
-          url: event.request.url,
-          error,
-        });
         const cached = await cache.match(event.request);
         if (cached) return cached;
         throw error;

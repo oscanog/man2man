@@ -73,45 +73,22 @@ function JoinSessionPage() {
   const prefilledCode = search.code ?? ''
   const isFromList = search.from === 'list'
   const isSharedLinkEntry = !isFromList && prefilledCode.length > 0
-  const joinFlowIdRef = useRef(`join-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
-  const logJoin = useCallback((event: string, payload?: unknown) => {
-    if (payload !== undefined) {
-      console.log(`[JoinFlow:${joinFlowIdRef.current}] ${event}`, payload)
-      return
-    }
-    console.log(`[JoinFlow:${joinFlowIdRef.current}] ${event}`)
-  }, [])
 
   const claimUsername = useCallback(async (deviceId: string, username: string): Promise<User> => {
     const normalizedUsername = sanitizeUsernameInput(username)
-    logJoin('claim-username:start', {
-      deviceId: `${deviceId.slice(0, 8)}...`,
-      username: normalizedUsername,
-    })
     return await convexMutation<User>('users:upsert', {
       deviceId,
       username: normalizedUsername,
     })
-  }, [logJoin])
-
-  useEffect(() => {
-    logJoin('page-mounted', {
-      prefilledCode,
-      isFromList,
-      isSharedLinkEntry,
-      storedAuth: storage.getAuth(),
-    })
-  }, [isFromList, isSharedLinkEntry, logJoin, prefilledCode])
+  }, [])
 
   useEffect(() => {
     let isCancelled = false
 
     const bootstrapIdentity = async () => {
       const auth = storage.getAuth()
-      logJoin('bootstrap-identity:start', { auth, isSharedLinkEntry })
 
       if (auth.deviceId && auth.userId && auth.username) {
-        logJoin('bootstrap-identity:using-existing-auth', { userId: auth.userId, username: auth.username })
         if (isCancelled) return
         setIdentityDeviceId(auth.deviceId)
         setUsernameDraft(auth.username)
@@ -121,7 +98,6 @@ function JoinSessionPage() {
       }
 
       if (!isSharedLinkEntry) {
-        logJoin('bootstrap-identity:missing-auth-and-not-shared-link')
         if (isCancelled) return
         setIsAuthenticated(false)
         setIsBootstrappingIdentity(false)
@@ -139,17 +115,12 @@ function JoinSessionPage() {
         let nextCandidate = candidate
 
         for (let attempt = 0; attempt < 2; attempt++) {
-          logJoin('bootstrap-identity:claim-attempt', {
-            attempt: attempt + 1,
-            candidate: nextCandidate,
-          })
           try {
             user = await claimUsername(deviceId, nextCandidate)
             break
           } catch (err) {
             const suggestion = err instanceof Error ? parseSuggestedUsername(err.message) : null
             if (suggestion && attempt === 0) {
-              logJoin('bootstrap-identity:claim-conflict', { suggestion })
               nextCandidate = suggestion
               continue
             }
@@ -162,10 +133,6 @@ function JoinSessionPage() {
         }
 
         storage.setAuthData(deviceId, user.username, user._id)
-        logJoin('bootstrap-identity:auto-created-auth-success', {
-          userId: user._id,
-          username: user.username,
-        })
 
         if (isCancelled) return
 
@@ -179,7 +146,6 @@ function JoinSessionPage() {
       } catch (err) {
         if (isCancelled) return
 
-        logJoin('bootstrap-identity:failed', err)
         setError(err instanceof Error ? err.message : 'Failed to initialize your profile')
         setIsAuthenticated(false)
       } finally {
@@ -240,10 +206,8 @@ function JoinSessionPage() {
   }
 
   const handleConfirmUsername = useCallback(async () => {
-    logJoin('username-modal:confirm-clicked', { usernameDraft })
     const deviceId = identityDeviceId ?? storage.getDeviceId()
     if (!deviceId) {
-      logJoin('username-modal:missing-device-id')
       setUsernameError('Unable to resolve device identity. Please refresh and try again.')
       return
     }
@@ -251,7 +215,6 @@ function JoinSessionPage() {
     const normalizedUsername = sanitizeUsernameInput(usernameDraft)
 
     if (normalizedUsername.length < USERNAME_MIN_LENGTH) {
-      logJoin('username-modal:invalid-username', { normalizedUsername })
       setUsernameError(`Username must be at least ${USERNAME_MIN_LENGTH} characters`)
       setSuggestedUsername(null)
       return
@@ -263,7 +226,6 @@ function JoinSessionPage() {
     try {
       const user = await claimUsername(deviceId, normalizedUsername)
       storage.setAuthData(deviceId, user.username, user._id)
-      logJoin('username-modal:save-success', { userId: user._id, username: user.username })
       setUsernameDraft(user.username)
       setShowUsernameModal(false)
       setSuggestedUsername(null)
@@ -279,7 +241,6 @@ function JoinSessionPage() {
         }, 0)
       }
     } catch (err) {
-      logJoin('username-modal:save-failed', err)
       if (err instanceof Error) {
         const suggestion = parseSuggestedUsername(err.message)
         if (suggestion) {
@@ -299,7 +260,6 @@ function JoinSessionPage() {
   }, [claimUsername, code, identityDeviceId, usernameDraft])
 
   const handleCancelUsernameModal = useCallback(() => {
-    logJoin('username-modal:cancel-clicked', { autoCreatedIdentity: autoCreatedIdentityRef.current })
     setShowUsernameModal(false)
     setSuggestedUsername(null)
     setUsernameError(null)
@@ -360,18 +320,13 @@ function JoinSessionPage() {
    * This handles the case where the join mutation succeeds but database isn't updated
    */
   const verifySessionJoined = async (sessionId: string, maxAttempts = 5): Promise<boolean> => {
-    let attempt = 0
-    logJoin('verify-session:start', { sessionId, maxAttempts })
     try {
       await pollWithTimeout<ParticipantState>(
         async () => {
-          attempt += 1
-          const state = await convexQuery<ParticipantState>('sessions:getParticipantState', {
+          return await convexQuery<ParticipantState>('sessions:getParticipantState', {
             sessionId,
             userId,
           })
-          logJoin('verify-session:poll', { attempt, state })
-          return state
         },
         (state) => state.exists && state.isParticipant && state.status === 'active',
         {
@@ -381,10 +336,8 @@ function JoinSessionPage() {
         }
       )
 
-      logJoin('verify-session:success', { sessionId, attempts: attempt })
       return true
-    } catch (err) {
-      logJoin('verify-session:failed', { sessionId, attempts: attempt, err })
+    } catch {
       return false
     }
   }
@@ -392,12 +345,10 @@ function JoinSessionPage() {
   const handleJoin = async () => {
     const fullCode = code.join('')
     if (fullCode.length !== 6) {
-      logJoin('join:blocked-invalid-code', { fullCode })
       setError('Please enter a valid 6-character code')
       return
     }
     if (!userId) {
-      logJoin('join:blocked-missing-user')
       setError('User not authenticated')
       return
     }
@@ -405,8 +356,6 @@ function JoinSessionPage() {
     setIsLoading(true)
     setIsVerifying(false)
     setError(null)
-
-    logJoin('join:start', { fullCode, userId })
 
     try {
       const result = await convexMutation<JoinResult>('sessions:join', {
@@ -416,7 +365,6 @@ function JoinSessionPage() {
         maxRetries: 3,
         baseDelay: 500,
       })
-      logJoin('join:mutation-success', result)
       
       if (!result.joined || !result.sessionId) {
         throw new Error('Join mutation returned unsuccessful result')
@@ -437,24 +385,17 @@ function JoinSessionPage() {
         source: isSharedLinkEntry ? 'shared_link' : isFromList ? 'list' : 'manual',
         createdAt: Date.now(),
       })
-      logJoin('join:handoff-saved', { sessionId: result.sessionId, source: isSharedLinkEntry ? 'shared_link' : isFromList ? 'list' : 'manual' })
-      logJoin('join:navigate-map', { sessionId: result.sessionId })
       navigate({ to: '/map/$sessionId', params: { sessionId: result.sessionId } })
       setTimeout(() => {
         if (typeof window === 'undefined') return
         const isOnMapRoute = window.location.pathname.startsWith('/map/')
         if (!isOnMapRoute) {
-          logJoin('join:navigate-recovery-hard-redirect', {
-            currentPath: window.location.pathname,
-            expectedSessionId: result.sessionId,
-          })
           window.location.assign(`/map/${result.sessionId}`)
         }
       }, 900)
       
     } catch (err) {
       clearPendingJoinHandoff()
-      logJoin('join:failed', err)
       let message = 'Failed to join session'
 
       if (err instanceof Error) {

@@ -35,7 +35,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
   // Register service worker
   const register = useCallback(async () => {
     if (!state.isSupported || typeof window === 'undefined') {
-      console.log('[useServiceWorker] Service workers not supported');
       return;
     }
 
@@ -43,8 +42,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/',
       });
-
-      console.log('[useServiceWorker] Service Worker registered:', registration);
 
       // Check for existing registration
       setState(prev => ({
@@ -61,7 +58,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('[useServiceWorker] New version available');
               setState(prev => ({
                 ...prev,
                 updateAvailable: true,
@@ -92,7 +88,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
       const success = await state.registration.unregister();
       
       if (success) {
-        console.log('[useServiceWorker] Service Worker unregistered');
         setState(prev => ({
           ...prev,
           isRegistered: false,
@@ -111,7 +106,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
 
     try {
       await state.registration.update();
-      console.log('[useServiceWorker] Service Worker update check completed');
     } catch (error) {
       console.error('[useServiceWorker] Service Worker update failed:', error);
     }
@@ -127,21 +121,6 @@ export function useServiceWorker(): UseServiceWorkerReturn {
     // Reload the page to activate the new service worker
     window.location.reload();
   }, [state.registration]);
-
-  // Listen for messages from service worker
-  useEffect(() => {
-    if (!state.isSupported || typeof window === 'undefined') return;
-
-    const handleMessage = (event: MessageEvent) => {
-      console.log('[useServiceWorker] Message from SW:', event.data);
-    };
-
-    navigator.serviceWorker.addEventListener('message', handleMessage);
-
-    return () => {
-      navigator.serviceWorker.removeEventListener('message', handleMessage);
-    };
-  }, [state.isSupported]);
 
   return {
     ...state,
