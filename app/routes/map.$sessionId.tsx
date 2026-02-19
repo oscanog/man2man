@@ -41,6 +41,14 @@ interface Session {
   user2: User | null
 }
 
+interface ParticipantState {
+  exists: boolean
+  status: 'waiting' | 'active' | 'closed' | 'missing'
+  isParticipant: boolean
+  role: 'host' | 'guest' | 'none'
+  canSendLocation: boolean
+}
+
 interface Location {
   lat: number
   lng: number
@@ -81,6 +89,8 @@ function getBackoffDelay(attempt: number, baseDelay: number = 1000): number {
   return delay + (Math.random() * delay * 0.25)
 }
 
+const EXIT_CONFIRMATION_COUNT = 2
+
 function MapPage() {
   const { sessionId } = useParams({ from: '/map/$sessionId' })
   const navigate = useNavigate()
@@ -113,6 +123,8 @@ function MapPage() {
   const lastPartnerPollRef = useRef(0)
   const hasExitedSessionRef = useRef(false)
   const handledInviteSessionIdRef = useRef<string | null>(null)
+  const terminalSessionSignalsRef = useRef(0)
+  const nonParticipantSignalsRef = useRef(0)
 
   const userId = storage.getUserId()
   const username = storage.getUsername()
@@ -251,6 +263,17 @@ function MapPage() {
     }
   }, [sessionId, userId])
 
+  const fetchParticipantState = useCallback(async (): Promise<ParticipantState> => {
+    if (!userId) {
+      throw new Error('User not authenticated')
+    }
+
+    return await convexQuery<ParticipantState>('sessions:getParticipantState', {
+      sessionId,
+      userId,
+    })
+  }, [sessionId, userId])
+
   /**
    * Fetch session and partner location
    */
@@ -281,8 +304,36 @@ function MapPage() {
     isUpdatingRef.current = true
 
     try {
-      // Step 1: Send location update if available
-      if (myLocation) {
+      // Step 1: Confirm participant state before sending updates.
+      let participantState: ParticipantState | null = null
+      try {
+        participantState = await fetchParticipantState()
+
+        if (!participantState.exists || participantState.status === 'closed' || participantState.status === 'missing') {
+          terminalSessionSignalsRef.current += 1
+          if (terminalSessionSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
+            handleTerminalExit('Session has ended. Returning to sessions...')
+            return
+          }
+        } else {
+          terminalSessionSignalsRef.current = 0
+        }
+
+        if (participantState.exists && !participantState.isParticipant) {
+          nonParticipantSignalsRef.current += 1
+          if (nonParticipantSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
+            handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
+            return
+          }
+        } else {
+          nonParticipantSignalsRef.current = 0
+        }
+      } catch {
+        // Participant-state query can fail on transient network issues.
+      }
+
+      // Step 2: Send location update only when backend allows it.
+      if (myLocation && (participantState?.canSendLocation ?? true)) {
         try {
           await sendLocationUpdate(myLocation)
           consecutiveErrorsRef.current = 0
@@ -298,72 +349,67 @@ function MapPage() {
 
           if (normalizedErrorMessage.includes('session is closed') ||
               normalizedErrorMessage.includes('session not found')) {
-            handleTerminalExit('Session has ended. Returning to sessions...')
-            return
-          }
-
-          // Check if user is not in session - redirect to join
-          if (normalizedErrorMessage.includes('not in session') ||
+            terminalSessionSignalsRef.current += 1
+            if (terminalSessionSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
+              handleTerminalExit('Session has ended. Returning to sessions...')
+              return
+            }
+          } else if (normalizedErrorMessage.includes('not in session') ||
               normalizedErrorMessage.includes('user not in session')) {
-            handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
-            return
-          }
+            nonParticipantSignalsRef.current += 1
+            if (nonParticipantSignalsRef.current >= EXIT_CONFIRMATION_COUNT) {
+              handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
+              return
+            }
+          } else {
+            setUpdateError({
+              message: errorMessage,
+              timestamp: Date.now(),
+              isRecoverable: consecutiveErrorsRef.current < 5,
+            })
 
-          setUpdateError({
-            message: errorMessage,
-            timestamp: Date.now(),
-            isRecoverable: consecutiveErrorsRef.current < 5,
-          })
-
-          if (consecutiveErrorsRef.current >= 3) {
-            setConnectionStatus('disconnected')
-          } else if (consecutiveErrorsRef.current >= 1) {
-            setConnectionStatus('reconnecting')
+            if (consecutiveErrorsRef.current >= 3) {
+              setConnectionStatus('disconnected')
+            } else if (consecutiveErrorsRef.current >= 1) {
+              setConnectionStatus('reconnecting')
+            }
           }
         }
       }
 
-      // Step 2: Poll for session data (always try this)
+      // Step 3: Poll for session data for UI rendering.
       try {
         const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
+
+        if (!sessionData) {
+          // Avoid immediate redirect on a single null snapshot.
+          return
+        }
 
         setSession(sessionData)
         setPartnerUser(partner)
         setIsSessionLoaded(true)
         setPartnerLocation(partnerLoc)
-
-        if (!sessionData) {
-          handleTerminalExit('Session no longer exists. Returning to sessions...')
-          return
-        }
-
-        // Check if user is part of this session
-        if (sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
-          handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
-          return
-        }
-
-        // Check if session is closed
-        if (sessionData.status === 'closed') {
-          handleTerminalExit('Session has been closed. Returning to sessions...')
-          return
-        }
-
         lastPartnerPollRef.current = Date.now()
       } catch {
-        // Session data fetch failed - will retry on next cycle
+        // Session data fetch failed - will retry on next cycle.
       }
 
     } finally {
       isUpdatingRef.current = false
     }
-  }, [myLocation, sendLocationUpdate, fetchSessionData, updateError, handleTerminalExit, userId])
+  }, [myLocation, sendLocationUpdate, fetchParticipantState, fetchSessionData, updateError, handleTerminalExit])
 
   /**
    * Manual retry handler
    */
   const handleManualRetry = useCallback(async () => {
     if (hasExitedSessionRef.current) return
+
+    if (!userId) {
+      setError('User not authenticated')
+      return
+    }
 
     if (!myLocation) {
       setError('Location not available')
@@ -374,24 +420,32 @@ function MapPage() {
     setRetryCount(prev => prev + 1)
 
     try {
-      await sendLocationUpdate(myLocation)
+      const participantState = await fetchParticipantState()
 
-      const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
-
-      if (!sessionData || sessionData.status === 'closed') {
+      if (!participantState.exists || participantState.status === 'closed' || participantState.status === 'missing') {
         handleTerminalExit('Session has ended. Returning to sessions...')
         return
       }
 
-      if (sessionData.user1Id !== userId && sessionData.user2Id !== userId) {
+      if (!participantState.isParticipant) {
         handleTerminalExit('You are not part of this session. Redirecting to join...', 'join')
         return
       }
 
-      setSession(sessionData)
-      setPartnerUser(partner)
-      setPartnerLocation(partnerLoc)
+      if (participantState.canSendLocation) {
+        await sendLocationUpdate(myLocation)
+      }
 
+      const { session: sessionData, partnerLoc, partner } = await fetchSessionData()
+      if (sessionData) {
+        setSession(sessionData)
+        setPartnerUser(partner)
+        setPartnerLocation(partnerLoc)
+        setIsSessionLoaded(true)
+      }
+
+      terminalSessionSignalsRef.current = 0
+      nonParticipantSignalsRef.current = 0
       consecutiveErrorsRef.current = 0
       setUpdateError(null)
       setConnectionStatus('connected')
@@ -417,7 +471,7 @@ function MapPage() {
     } finally {
       setIsManualRetrying(false)
     }
-  }, [myLocation, sendLocationUpdate, fetchSessionData, handleTerminalExit, userId])
+  }, [myLocation, userId, fetchParticipantState, sendLocationUpdate, fetchSessionData, handleTerminalExit])
 
   // Set up periodic updates
   useEffect(() => {

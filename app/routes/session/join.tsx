@@ -33,12 +33,12 @@ interface JoinResult {
   joined: boolean
 }
 
-interface Session {
-  _id: string
-  code: string
-  user1Id: string
-  user2Id: string | null
-  status: 'waiting' | 'active' | 'closed'
+interface ParticipantState {
+  exists: boolean
+  status: 'waiting' | 'active' | 'closed' | 'missing'
+  isParticipant: boolean
+  role: 'host' | 'guest' | 'none'
+  canSendLocation: boolean
 }
 
 interface User {
@@ -319,30 +319,21 @@ function JoinSessionPage() {
    * This handles the case where the join mutation succeeds but database isn't updated
    */
   const verifySessionJoined = async (sessionId: string, maxAttempts = 5): Promise<boolean> => {
-    // console.log(`[Join] Verifying session ${sessionId} joined status...`)
-    
     try {
-      const result = await pollWithTimeout<Session | null>(
-        () => convexQuery<Session | null>('sessions:get', { sessionId }),
-        (session) => {
-          // Check if user is in the session (as user2 or user1)
-          const isInSession = session !== null && 
-            (session.user2Id === userId || session.user1Id === userId)
-          return isInSession
-        },
+      await pollWithTimeout<ParticipantState>(
+        () =>
+          convexQuery<ParticipantState>('sessions:getParticipantState', {
+            sessionId,
+            userId,
+          }),
+        (state) => state.exists && state.isParticipant && state.status === 'active',
         {
           interval: 800,
           timeout: 5000,
           maxAttempts,
         }
       )
-      
-      // console.log(`[Join] Session verification successful:`, {
-      //   sessionId: result._id,
-      //   user2Id: result.user2Id,
-      //   status: result.status,
-      // })
-      
+
       return true
     } catch {
       return false
