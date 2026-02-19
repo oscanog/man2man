@@ -54,6 +54,7 @@ function SessionLayout() {
   const userId = storage.getUserId()
   const username = storage.getUsername()
   const shouldShowHostLocation = pathname === '/session/create'
+  const isJoinRoute = pathname.startsWith('/session/join')
   const handledSessionIdRef = useRef<string | null>(null)
   const {
     incomingInvite,
@@ -202,6 +203,10 @@ function SessionLayout() {
 
   // Redirect if not authenticated
   if (!isAuthenticated) {
+    if (isJoinRoute) {
+      return <Outlet />
+    }
+
     return <Navigate to="/" />
   }
 
