@@ -113,7 +113,8 @@ function MapPage() {
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
   const partnerName = partnerUser?.username?.trim() || null
-  const connectedLabel = partnerName ? `Connected to @${partnerName}` : 'Connected'
+  const connectedPartnerLabel = partnerName ? `@${partnerName}` : '@unknown'
+  const waitingSecondaryLabel = isHost ? 'No partner yet' : 'Syncing session'
   const { users: onlineUsers, isLoading: isOnlineUsersLoading, error: onlineUsersError } = useOnlineUsers(isUsersDrawerOpen)
   const {
     incomingInvite,
@@ -611,25 +612,38 @@ function MapPage() {
                 <p className="text-white/60 text-xs">Session Code</p>
                 <p className="text-white text-xl font-bold">{session?.code || '...'}</p>
               </div>
-              <div className="flex items-center justify-end gap-2 min-w-0 max-w-[56%]">
+              <div className="flex flex-col items-end min-w-0 max-w-[62%]">
                 {isPartnerConnected ? (
                   <>
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <div className="flex items-center justify-end gap-2 w-full min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+                      <span className="text-sm text-green-500 truncate" title="Connected">
+                        Connected
+                      </span>
+                    </div>
                     <span
-                      className="text-sm text-green-500 truncate"
-                      title={connectedLabel}
+                      className="text-xs text-green-400/90 truncate w-full text-right"
+                      title={connectedPartnerLabel}
                     >
-                      {connectedLabel}
+                      {connectedPartnerLabel}
                     </span>
                   </>
                 ) : (
                   <>
-                    <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                    <div className="flex items-center justify-end gap-2 w-full min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
+                      <span
+                        className="text-sm text-yellow-500 truncate"
+                        title={isHost ? 'Waiting for partner' : 'Connecting to host'}
+                      >
+                        {isHost ? 'Waiting' : 'Connecting'}
+                      </span>
+                    </div>
                     <span
-                      className="text-sm text-yellow-500 truncate"
+                      className="text-xs text-yellow-400/85 truncate w-full text-right"
                       title={isHost ? 'Waiting for partner' : 'Connecting to host'}
                     >
-                      {isHost ? 'Waiting' : 'Connecting...'}
+                      {waitingSecondaryLabel}
                     </span>
                   </>
                 )}

@@ -5,6 +5,16 @@ import { convexMutation, convexQuery, pollWithTimeout } from '@/lib/convex'
 import { storage } from '@/lib/storage'
 
 export const Route = createFileRoute('/session/join')({
+  validateSearch: (search: Record<string, unknown>) => {
+    const rawCode = typeof search.code === 'string' ? search.code : ''
+    const normalizedCode = rawCode.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6)
+    const from = search.from === 'list' ? 'list' : undefined
+
+    return {
+      code: normalizedCode || undefined,
+      from,
+    }
+  },
   component: JoinSessionPage,
   beforeLoad: async () => {
     return {}
@@ -26,6 +36,7 @@ interface Session {
 
 function JoinSessionPage() {
   const navigate = useNavigate()
+  const search = Route.useSearch()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [code, setCode] = useState<string[]>(['', '', '', '', '', ''])
   const [error, setError] = useState<string | null>(null)
@@ -33,8 +44,11 @@ function JoinSessionPage() {
   const [isVerifying, setIsVerifying] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
   const joinButtonRef = useRef<HTMLButtonElement | null>(null)
+  const appliedPrefillRef = useRef<string | null>(null)
 
   const userId = storage.getUserId()
+  const prefilledCode = search.code ?? ''
+  const isFromList = search.from === 'list'
 
   useEffect(() => {
     setIsAuthenticated(storage.isAuthenticated())
@@ -45,6 +59,24 @@ function JoinSessionPage() {
       inputRefs.current[0]?.focus()
     }
   }, [isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (!prefilledCode || appliedPrefillRef.current === prefilledCode) return
+
+    const nextCode = Array.from({ length: 6 }, (_, index) => prefilledCode[index] ?? '')
+    setCode(nextCode)
+    setError(null)
+    appliedPrefillRef.current = prefilledCode
+
+    setTimeout(() => {
+      if (prefilledCode.length === 6) {
+        joinButtonRef.current?.focus()
+      } else {
+        inputRefs.current[Math.min(prefilledCode.length, 5)]?.focus()
+      }
+    }, 0)
+  }, [isAuthenticated, prefilledCode])
 
   const autoSubmitIfComplete = (nextCode: string[]) => {
     const isComplete = nextCode.every((char) => char.length === 1)
@@ -231,6 +263,14 @@ function JoinSessionPage() {
         <h1 className="text-3xl font-bold text-white text-center mb-2">Join a Session</h1>
         <p className="text-white/60 text-center mb-8">Enter 6-digit code</p>
 
+        {isFromList && (
+          <div className="mb-4 text-center">
+            <span className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs text-white/80">
+              Selected from Active Sessions
+            </span>
+          </div>
+        )}
+
         <div className="flex gap-2 justify-center mb-6">
           {code.map((char, index) => (
             <input
@@ -282,7 +322,13 @@ function JoinSessionPage() {
 
         <Button 
           variant="tertiary"
-          onClick={() => navigate({ to: '/session' })} 
+          onClick={() => {
+            if (isFromList) {
+              navigate({ to: '/session/list' })
+              return
+            }
+            navigate({ to: '/session' })
+          }}
           disabled={isLoading || isVerifying}
           className="w-full"
         >
