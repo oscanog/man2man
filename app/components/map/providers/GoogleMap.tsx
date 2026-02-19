@@ -23,7 +23,6 @@ export function GoogleMapProvider({
   apiKey,
   onLoadError,
 }: GoogleMapProviderProps) {
-  const isDebug = (import.meta.env.VITE_DEBUG_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapsRef = useRef<any>(null)
   const advancedMarkerCtorRef = useRef<any>(null)
@@ -221,13 +220,6 @@ export function GoogleMapProvider({
 
     const routePoints = routePath?.points ?? []
     const hasRoute = routePoints.length >= 2
-    if (isDebug) {
-      console.log('[live-route][google] update', {
-        hasRoute,
-        points: routePoints.length,
-        status: routePath?.status ?? null,
-      })
-    }
 
     if (!hasRoute) {
       removeRoute()

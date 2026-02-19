@@ -136,7 +136,6 @@ function MapPage() {
   const userId = storage.getUserId()
   const username = storage.getUsername()
   const isLiveRouteEnabled = (import.meta.env.VITE_FEATURE_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
-  const isLiveRouteDebugEnabled = (import.meta.env.VITE_DEBUG_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
   const partnerName = partnerUser?.username?.trim() || null
@@ -168,33 +167,6 @@ function MapPage() {
     isPartnerConnected,
     enabled: Boolean(isAuthenticated) && isLiveRouteEnabled,
   })
-
-  useEffect(() => {
-    if (!isLiveRouteDebugEnabled) return
-    console.log('[live-route][map-page] state', {
-      isAuthenticated,
-      isLiveRouteEnabled,
-      sessionId,
-      userId,
-      isPartnerConnected,
-      hasMyLocation: Boolean(myLocation),
-      hasPartnerLocation: Boolean(partnerLocation),
-      routeStatus: routePath?.status ?? null,
-      routePoints: routePath?.points?.length ?? 0,
-      routeFresh: routePath?.isFresh ?? null,
-      routeError: routePath?.lastError ?? null,
-    })
-  }, [
-    isAuthenticated,
-    isLiveRouteDebugEnabled,
-    isLiveRouteEnabled,
-    isPartnerConnected,
-    myLocation,
-    partnerLocation,
-    routePath,
-    sessionId,
-    userId,
-  ])
 
   const handleTerminalExit = useCallback((message: string, route: 'session' | 'join' = 'session') => {
     if (hasExitedSessionRef.current) return
