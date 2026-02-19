@@ -26,8 +26,32 @@ function OnboardingPage() {
   const [username, setUsername] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [suggestedUsername, setSuggestedUsername] = useState<string | null>(null)
+  const [isSuggestionApplied, setIsSuggestionApplied] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const parseSuggestedUsername = (message: string): string | null => {
+    const prefix = 'USERNAME_IN_USE:'
+    const start = message.indexOf(prefix)
+    if (start === -1) {
+      return null
+    }
+
+    const suggestion = message.slice(start + prefix.length).trim().split(/\s+/)[0] ?? ''
+    return suggestion.length > 0 ? suggestion : null
+  }
+
+  const applySuggestedUsername = (nextUsername: string) => {
+    setUsername(nextUsername)
+    setError(null)
+    setIsSuggestionApplied(true)
+    setTimeout(() => {
+      setIsSuggestionApplied(false)
+      setSuggestedUsername(null)
+    }, 650)
+    inputRef.current?.focus()
+  }
 
   // Check if already authenticated (client-side only)
   useEffect(() => {
@@ -50,6 +74,7 @@ function OnboardingPage() {
     
     if (!username.trim() || username.length < 3) {
       setError('Username must be at least 3 characters')
+      setSuggestedUsername(null)
       return
     }
 
@@ -68,7 +93,24 @@ function OnboardingPage() {
       
       navigate({ to: '/session' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create user')
+      if (import.meta.env.DEV) {
+        console.error('[Onboarding] users:upsert failed', err)
+      }
+
+      if (err instanceof Error) {
+        const suggestion = parseSuggestedUsername(err.message)
+
+        if (suggestion) {
+          setError(`"${username.trim()}" is currently active. Try this available username.`)
+          setSuggestedUsername(suggestion)
+        } else {
+          setError(err.message)
+          setSuggestedUsername(null)
+        }
+      } else {
+        setError('Failed to create user')
+        setSuggestedUsername(null)
+      }
       setIsLoading(false)
     }
   }
@@ -103,12 +145,34 @@ function OnboardingPage() {
           onChange={(e) => {
             setUsername(e.target.value)
             setError(null)
+            setSuggestedUsername(null)
           }}
           placeholder="Enter your username"
-          error={error}
+          error={Boolean(error)}
+          className={isSuggestionApplied ? 'username-input-autofill' : undefined}
           maxLength={20}
           autoComplete="off"
         />
+
+        {suggestedUsername && (
+          <div className="username-suggestion-card username-suggestion-enter">
+            <p className="text-sm" style={{ color: 'var(--color-onboard-suggestion-text)' }}>
+              Suggested available username
+            </p>
+            <button
+              type="button"
+              onClick={() => applySuggestedUsername(suggestedUsername)}
+              className={`username-suggestion-chip ${isSuggestionApplied ? 'is-applied' : ''}`}
+              aria-label={`Use suggested username ${suggestedUsername}`}
+            >
+              {suggestedUsername}
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <p className="text-sm text-center text-red-400 -mt-3">{error}</p>
+        )}
 
         <Button
           type="submit"

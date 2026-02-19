@@ -19,6 +19,7 @@ interface ConvexResponse<T> {
   value?: T
   error?: string
   errorMessage?: string  // Convex production error format
+  errorData?: unknown  // ConvexError payload
   message?: string  // Some Convex errors use 'message' field
 }
 
@@ -82,6 +83,32 @@ function extractErrorMessage(error: unknown, context: string): string {
     return JSON.stringify(error)
   }
   return `${context}: Unknown error`
+}
+
+function decodeConvexError<T>(data: ConvexResponse<T>): Error {
+  const fallback = data.errorMessage || data.error || data.message || 'Unknown Convex error'
+  const payload = data.errorData
+
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const errorData = payload as Record<string, unknown>
+    const code = typeof errorData.code === 'string' ? errorData.code : null
+    const message = typeof errorData.message === 'string' ? errorData.message : null
+    const suggestion = typeof errorData.suggestion === 'string' ? errorData.suggestion : null
+
+    if (code === 'USERNAME_IN_USE' && suggestion) {
+      return new Error(`USERNAME_IN_USE:${suggestion}`)
+    }
+
+    if (message) {
+      return new Error(message)
+    }
+
+    if (code) {
+      return new Error(code)
+    }
+  }
+
+  return new Error(fallback)
 }
 
 /**
@@ -148,8 +175,11 @@ export async function convexQuery<T>(
     }
 
     if (data.status === 'error') {
-      const errorMsg = data.errorMessage || data.error || data.message || 'Unknown Convex error'
-      throw new Error(errorMsg)
+      const error = decodeConvexError(data)
+      if (import.meta.env.DEV) {
+        console.error('[convexQuery] query failed', { path, args, response: data, parsedMessage: error.message })
+      }
+      throw error
     }
 
     return data.value as T
@@ -187,8 +217,11 @@ export async function convexMutation<T>(
     }
 
     if (data.status === 'error') {
-      const errorMsg = data.errorMessage || data.error || data.message || 'Unknown Convex error'
-      throw new Error(errorMsg)
+      const error = decodeConvexError(data)
+      if (import.meta.env.DEV) {
+        console.error('[convexMutation] mutation failed', { path, args, response: data, parsedMessage: error.message })
+      }
+      throw error
     }
 
     return data.value as T
@@ -232,7 +265,11 @@ export function subscribeConvexQuery<T>(
       const data = await response.json() as ConvexResponse<T>
 
       if (data.status === 'error') {
-        throw new Error(data.errorMessage || data.error || 'Unknown Convex error')
+        const error = decodeConvexError(data)
+        if (import.meta.env.DEV) {
+          console.error('[subscribeConvexQuery] query failed', { path, args, response: data, parsedMessage: error.message })
+        }
+        throw error
       }
 
       consecutiveErrors = 0
