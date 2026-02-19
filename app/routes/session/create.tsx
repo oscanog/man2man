@@ -133,7 +133,7 @@ function CreateSessionPage() {
       try {
         // Use the dedicated hasPartnerJoined query for efficiency
         // console.log(`[Create] Polling for partner joined - session: ${session._id}`)
-        const result = await convexQuery<PartnerJoinStatus>('sessions:hasPartnerJoined', {
+        const result = await convexQuery<PartnerJoinStatus>('locationSessions:hasPartnerJoined', {
           sessionId: session._id,
         })
 
@@ -206,7 +206,7 @@ function CreateSessionPage() {
 
     try {
       // console.log('[Create] Creating new session...')
-      const result = await convexMutation<{ sessionId: string; code: string }>('sessions:create', {
+      const result = await convexMutation<{ sessionId: string; code: string }>('locationSessions:create', {
         userId,
       })
       

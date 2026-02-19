@@ -271,7 +271,7 @@ function MapPage() {
       throw new Error('User not authenticated')
     }
 
-    return await convexQuery<ParticipantState>('sessions:getParticipantState', {
+    return await convexQuery<ParticipantState>('locationSessions:getParticipantState', {
       sessionId,
       userId,
     })
@@ -281,7 +281,7 @@ function MapPage() {
    * Fetch session and partner location
    */
   const fetchSessionData = useCallback(async (): Promise<{ session: Session | null; partnerLoc: Location | null; partner: User | null }> => {
-    const sessionData = await convexQuery<Session | null>('sessions:get', { sessionId })
+    const sessionData = await convexQuery<Session | null>('locationSessions:get', { sessionId })
 
     // Get partner location
     const partnerLoc = await convexQuery<Location | null>('locations:getPartnerLocation', { sessionId, userId })
@@ -561,7 +561,7 @@ function MapPage() {
     clearActionError()
 
     try {
-      await convexMutation('sessions:close', { sessionId, userId }, { maxRetries: 3 })
+      await convexMutation('locationSessions:close', { sessionId, userId }, { maxRetries: 3 })
       didCloseCurrentSession = true
       hasExitedSessionRef.current = true
 
@@ -621,7 +621,7 @@ function MapPage() {
     if (!sessionId || !userId) return
     setIsLoading(true)
     try {
-      await convexMutation('sessions:close', { sessionId, userId }, { maxRetries: 3 })
+      await convexMutation('locationSessions:close', { sessionId, userId }, { maxRetries: 3 })
       hasExitedSessionRef.current = true
       setIsUsersDrawerOpen(false)
       setSelectedInviteTarget(null)

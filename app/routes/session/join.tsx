@@ -323,7 +323,7 @@ function JoinSessionPage() {
     try {
       await pollWithTimeout<ParticipantState>(
         async () => {
-          return await convexQuery<ParticipantState>('sessions:getParticipantState', {
+          return await convexQuery<ParticipantState>('locationSessions:getParticipantState', {
             sessionId,
             userId,
           })
@@ -358,7 +358,7 @@ function JoinSessionPage() {
     setError(null)
 
     try {
-      const result = await convexMutation<JoinResult>('sessions:join', {
+      const result = await convexMutation<JoinResult>('locationSessions:join', {
         code: fullCode,
         userId,
       }, {

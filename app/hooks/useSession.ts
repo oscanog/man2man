@@ -49,7 +49,7 @@ export function useSession(): UseSessionReturn {
     setError(null)
 
     try {
-      const result = await convexMutation<CreateSessionResult>('sessions:create', {
+      const result = await convexMutation<CreateSessionResult>('locationSessions:create', {
         userId,
       })
       return result
@@ -69,7 +69,7 @@ export function useSession(): UseSessionReturn {
     setError(null)
 
     try {
-      const sessionId = await convexMutation<string>('sessions:join', {
+      const sessionId = await convexMutation<string>('locationSessions:join', {
         code: code.toUpperCase(),
         userId,
       })
@@ -103,7 +103,7 @@ export function useSession(): UseSessionReturn {
     setError(null)
 
     try {
-      await convexMutation('sessions:close', {
+      await convexMutation('locationSessions:close', {
         sessionId,
         userId,
       })
@@ -123,7 +123,7 @@ export function useSession(): UseSessionReturn {
     setError(null)
 
     try {
-      const activeSession = await convexQuery<Session | null>('sessions:getActiveForUser', {
+      const activeSession = await convexQuery<Session | null>('locationSessions:getActiveForUser', {
         userId,
       })
       setSession(activeSession)
@@ -169,7 +169,7 @@ export function useSessionWatcher(
     setIsLoading(true)
 
     const cleanup = subscribeConvexQuery<Session>(
-      'sessions:get',
+      'locationSessions:get',
       { sessionId },
       (data) => {
         // Check if partner just joined
@@ -212,7 +212,7 @@ export function useActiveSessions() {
     setError(null)
 
     try {
-      const data = await convexQuery<Session[]>('sessions:getAllActive', {})
+      const data = await convexQuery<Session[]>('locationSessions:getAllActive', {})
       setSessions(data || [])
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))

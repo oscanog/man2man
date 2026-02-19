@@ -25,6 +25,16 @@
  */
 
 // Stub API for development - replace with actual generated API
+const locationSessionEndpoints = {
+  create: "locationSessions/create" as const,
+  join: "locationSessions/join" as const,
+  get: "locationSessions/get" as const,
+  getByCode: "locationSessions/getByCode" as const,
+  getActiveForUser: "locationSessions/getActiveForUser" as const,
+  close: "locationSessions/close" as const,
+  getAllActive: "locationSessions/getAllActive" as const,
+}
+
 export const api = {
   users: {
     upsert: "users/upsert" as const,
@@ -33,15 +43,8 @@ export const api = {
     setOffline: "users/setOffline" as const,
     getOnlineUsers: "users/getOnlineUsers" as const,
   },
-  sessions: {
-    create: "sessions/create" as const,
-    join: "sessions/join" as const,
-    get: "sessions/get" as const,
-    getByCode: "sessions/getByCode" as const,
-    getActiveForUser: "sessions/getActiveForUser" as const,
-    close: "sessions/close" as const,
-    getAllActive: "sessions/getAllActive" as const,
-  },
+  locationSessions: locationSessionEndpoints,
+  sessions: locationSessionEndpoints,
   locations: {
     update: "locations/update" as const,
     getPartnerLocation: "locations/getPartnerLocation" as const,

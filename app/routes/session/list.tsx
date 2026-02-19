@@ -29,7 +29,7 @@ function SessionListPage() {
     data: sessionData,
     isLoading: isLiveLoading,
     error: liveError,
-  } = useConvexSubscription<Session[]>('sessions:getAllActive', {}, 2500)
+  } = useConvexSubscription<Session[]>('locationSessions:getAllActive', {}, 2500)
 
   // Check auth client-side
   useEffect(() => {
