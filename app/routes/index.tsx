@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { convexMutation } from '@/lib/convex'
 import { storage } from '@/lib/storage'
+import { parseSuggestedUsername, sanitizeUsernameInput, USERNAME_MIN_LENGTH } from '@/lib/username'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
@@ -30,17 +31,6 @@ function OnboardingPage() {
   const [isSuggestionApplied, setIsSuggestionApplied] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  const parseSuggestedUsername = (message: string): string | null => {
-    const prefix = 'USERNAME_IN_USE:'
-    const start = message.indexOf(prefix)
-    if (start === -1) {
-      return null
-    }
-
-    const suggestion = message.slice(start + prefix.length).trim().split(/\s+/)[0] ?? ''
-    return suggestion.length > 0 ? suggestion : null
-  }
 
   const applySuggestedUsername = (nextUsername: string) => {
     setUsername(nextUsername)
@@ -71,9 +61,11 @@ function OnboardingPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!username.trim() || username.length < 3) {
-      setError('Username must be at least 3 characters')
+
+    const normalizedUsername = sanitizeUsernameInput(username)
+
+    if (!normalizedUsername || normalizedUsername.length < USERNAME_MIN_LENGTH) {
+      setError(`Username must be at least ${USERNAME_MIN_LENGTH} characters`)
       setSuggestedUsername(null)
       return
     }
@@ -86,10 +78,10 @@ function OnboardingPage() {
       
       const user = await convexMutation<User>('users:upsert', {
         deviceId,
-        username: username.trim(),
+        username: normalizedUsername,
       })
 
-      storage.setAuthData(deviceId, username.trim(), user._id)
+      storage.setAuthData(deviceId, user.username, user._id)
       
       navigate({ to: '/session' })
     } catch (err) {
@@ -101,7 +93,7 @@ function OnboardingPage() {
         const suggestion = parseSuggestedUsername(err.message)
 
         if (suggestion) {
-          setError(`"${username.trim()}" is currently active. Try this available username.`)
+          setError(`"${normalizedUsername}" is currently active. Try this available username.`)
           setSuggestedUsername(suggestion)
         } else {
           setError(err.message)

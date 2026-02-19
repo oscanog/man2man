@@ -1,8 +1,15 @@
 import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import { convexMutation, convexQuery, pollWithTimeout } from '@/lib/convex'
 import { storage } from '@/lib/storage'
+import {
+  generateGuestUsername,
+  parseSuggestedUsername,
+  sanitizeUsernameInput,
+  USERNAME_MIN_LENGTH,
+} from '@/lib/username'
 
 export const Route = createFileRoute('/session/join')({
   validateSearch: (search: Record<string, unknown>) => {
@@ -34,31 +41,139 @@ interface Session {
   status: 'waiting' | 'active' | 'closed'
 }
 
+interface User {
+  _id: string
+  username: string
+}
+
 function JoinSessionPage() {
   const navigate = useNavigate()
   const search = Route.useSearch()
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [isBootstrappingIdentity, setIsBootstrappingIdentity] = useState(true)
   const [code, setCode] = useState<string[]>(['', '', '', '', '', ''])
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
+  const [identityDeviceId, setIdentityDeviceId] = useState<string | null>(null)
+  const [showUsernameModal, setShowUsernameModal] = useState(false)
+  const [usernameDraft, setUsernameDraft] = useState('')
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+  const [suggestedUsername, setSuggestedUsername] = useState<string | null>(null)
+  const [isSuggestionApplied, setIsSuggestionApplied] = useState(false)
+  const [isSavingUsername, setIsSavingUsername] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
   const joinButtonRef = useRef<HTMLButtonElement | null>(null)
+  const usernameInputRef = useRef<HTMLInputElement | null>(null)
   const appliedPrefillRef = useRef<string | null>(null)
+  const autoCreatedIdentityRef = useRef(false)
 
   const userId = storage.getUserId()
   const prefilledCode = search.code ?? ''
   const isFromList = search.from === 'list'
+  const isSharedLinkEntry = !isFromList && prefilledCode.length > 0
 
-  useEffect(() => {
-    setIsAuthenticated(storage.isAuthenticated())
+  const claimUsername = useCallback(async (deviceId: string, username: string): Promise<User> => {
+    const normalizedUsername = sanitizeUsernameInput(username)
+    return await convexMutation<User>('users:upsert', {
+      deviceId,
+      username: normalizedUsername,
+    })
   }, [])
 
   useEffect(() => {
-    if (isAuthenticated) {
+    let isCancelled = false
+
+    const bootstrapIdentity = async () => {
+      const auth = storage.getAuth()
+
+      if (auth.deviceId && auth.userId && auth.username) {
+        if (isCancelled) return
+        setIdentityDeviceId(auth.deviceId)
+        setUsernameDraft(auth.username)
+        setIsAuthenticated(true)
+        setIsBootstrappingIdentity(false)
+        return
+      }
+
+      if (!isSharedLinkEntry) {
+        if (isCancelled) return
+        setIsAuthenticated(false)
+        setIsBootstrappingIdentity(false)
+        return
+      }
+
+      const deviceId = auth.deviceId ?? crypto.randomUUID()
+      let candidate = sanitizeUsernameInput(auth.username ?? generateGuestUsername())
+      if (candidate.length < USERNAME_MIN_LENGTH) {
+        candidate = generateGuestUsername()
+      }
+
+      try {
+        let user: User | null = null
+        let nextCandidate = candidate
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            user = await claimUsername(deviceId, nextCandidate)
+            break
+          } catch (err) {
+            const suggestion = err instanceof Error ? parseSuggestedUsername(err.message) : null
+            if (suggestion && attempt === 0) {
+              nextCandidate = suggestion
+              continue
+            }
+            throw err
+          }
+        }
+
+        if (!user) {
+          throw new Error('Failed to auto-create username')
+        }
+
+        storage.setAuthData(deviceId, user.username, user._id)
+
+        if (isCancelled) return
+
+        autoCreatedIdentityRef.current = true
+        setIdentityDeviceId(deviceId)
+        setUsernameDraft(user.username)
+        setUsernameError(null)
+        setSuggestedUsername(null)
+        setShowUsernameModal(true)
+        setIsAuthenticated(true)
+      } catch (err) {
+        if (isCancelled) return
+
+        setError(err instanceof Error ? err.message : 'Failed to initialize your profile')
+        setIsAuthenticated(false)
+      } finally {
+        if (!isCancelled) {
+          setIsBootstrappingIdentity(false)
+        }
+      }
+    }
+
+    void bootstrapIdentity()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [claimUsername, isSharedLinkEntry])
+
+  useEffect(() => {
+    if (isAuthenticated && !showUsernameModal) {
       inputRefs.current[0]?.focus()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, showUsernameModal])
+
+  useEffect(() => {
+    if (!showUsernameModal) return
+
+    setTimeout(() => {
+      usernameInputRef.current?.focus()
+    }, 0)
+  }, [showUsernameModal])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -70,17 +185,91 @@ function JoinSessionPage() {
     appliedPrefillRef.current = prefilledCode
 
     setTimeout(() => {
-      if (prefilledCode.length === 6) {
+      if (prefilledCode.length === 6 && !showUsernameModal) {
         joinButtonRef.current?.focus()
       } else {
         inputRefs.current[Math.min(prefilledCode.length, 5)]?.focus()
       }
     }, 0)
-  }, [isAuthenticated, prefilledCode])
+  }, [isAuthenticated, prefilledCode, showUsernameModal])
+
+  const applySuggestedUsername = (nextUsername: string) => {
+    setUsernameDraft(nextUsername)
+    setUsernameError(null)
+    setIsSuggestionApplied(true)
+    setTimeout(() => {
+      setIsSuggestionApplied(false)
+      setSuggestedUsername(null)
+    }, 650)
+    usernameInputRef.current?.focus()
+  }
+
+  const handleConfirmUsername = useCallback(async () => {
+    const deviceId = identityDeviceId ?? storage.getDeviceId()
+    if (!deviceId) {
+      setUsernameError('Unable to resolve device identity. Please refresh and try again.')
+      return
+    }
+
+    const normalizedUsername = sanitizeUsernameInput(usernameDraft)
+
+    if (normalizedUsername.length < USERNAME_MIN_LENGTH) {
+      setUsernameError(`Username must be at least ${USERNAME_MIN_LENGTH} characters`)
+      setSuggestedUsername(null)
+      return
+    }
+
+    setIsSavingUsername(true)
+    setUsernameError(null)
+
+    try {
+      const user = await claimUsername(deviceId, normalizedUsername)
+      storage.setAuthData(deviceId, user.username, user._id)
+      setUsernameDraft(user.username)
+      setShowUsernameModal(false)
+      setSuggestedUsername(null)
+
+      if (code.every((char) => char.length === 1)) {
+        setTimeout(() => {
+          joinButtonRef.current?.focus()
+          joinButtonRef.current?.click()
+        }, 0)
+      } else {
+        setTimeout(() => {
+          inputRefs.current[0]?.focus()
+        }, 0)
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        const suggestion = parseSuggestedUsername(err.message)
+        if (suggestion) {
+          setUsernameError(`"${normalizedUsername}" is currently active. Try this available username.`)
+          setSuggestedUsername(suggestion)
+        } else {
+          setUsernameError(err.message)
+          setSuggestedUsername(null)
+        }
+      } else {
+        setUsernameError('Failed to save username')
+        setSuggestedUsername(null)
+      }
+    } finally {
+      setIsSavingUsername(false)
+    }
+  }, [claimUsername, code, identityDeviceId, usernameDraft])
+
+  const handleCancelUsernameModal = useCallback(() => {
+    setShowUsernameModal(false)
+    setSuggestedUsername(null)
+    setUsernameError(null)
+    if (autoCreatedIdentityRef.current) {
+      navigate({ to: '/session' })
+    }
+  }, [navigate])
 
   const autoSubmitIfComplete = (nextCode: string[]) => {
     const isComplete = nextCode.every((char) => char.length === 1)
-    if (!isComplete || isLoading || isVerifying) {
+    if (!isComplete || isLoading || isVerifying || showUsernameModal || isSavingUsername) {
       return
     }
 
@@ -234,7 +423,7 @@ function JoinSessionPage() {
     }
   }
 
-  if (isAuthenticated === null) {
+  if (isAuthenticated === null || isBootstrappingIdentity) {
     return (
       <div className="min-h-screen bg-[#0A1628] flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-white/30 border-t-[#FF035B] rounded-full" />
@@ -258,7 +447,97 @@ function JoinSessionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A1628] flex flex-col items-center justify-center px-6">
+    <div className="relative min-h-screen bg-[#0A1628] flex flex-col items-center justify-center px-6">
+      {showUsernameModal && (
+        <>
+          <button
+            aria-label="Close username setup backdrop"
+            onClick={handleCancelUsernameModal}
+            className="fixed inset-0 z-[980]"
+            style={{ backgroundColor: 'var(--color-modal-backdrop)' }}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[990] flex items-center justify-center p-5"
+          >
+            <div
+              className="w-full max-w-sm rounded-3xl p-5"
+              style={{
+                backgroundColor: 'var(--color-modal-surface)',
+                border: '1px solid var(--color-modal-border)',
+                boxShadow: '0 16px 48px rgba(0, 0, 0, 0.35)',
+              }}
+            >
+              <h2 className="text-lg font-semibold" style={{ color: 'var(--color-modal-text)' }}>
+                Auto created username is:
+              </h2>
+              <p className="mt-1 text-sm" style={{ color: 'var(--color-modal-text-muted)' }}>
+                You can edit this before entering the live map session.
+              </p>
+
+              <div className="mt-4">
+                <Input
+                  ref={usernameInputRef}
+                  value={usernameDraft}
+                  onChange={(e) => {
+                    setUsernameDraft(e.target.value)
+                    setUsernameError(null)
+                    setSuggestedUsername(null)
+                  }}
+                  placeholder="Enter your username"
+                  error={Boolean(usernameError)}
+                  className={isSuggestionApplied ? 'username-input-autofill' : undefined}
+                  maxLength={20}
+                  autoComplete="off"
+                  disabled={isSavingUsername}
+                />
+              </div>
+
+              {suggestedUsername && (
+                <div className="username-suggestion-card username-suggestion-enter mt-4">
+                  <p className="text-sm" style={{ color: 'var(--color-onboard-suggestion-text)' }}>
+                    Suggested available username
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => applySuggestedUsername(suggestedUsername)}
+                    className={`username-suggestion-chip ${isSuggestionApplied ? 'is-applied' : ''}`}
+                    aria-label={`Use suggested username ${suggestedUsername}`}
+                    disabled={isSavingUsername}
+                  >
+                    {suggestedUsername}
+                  </button>
+                </div>
+              )}
+
+              {usernameError && (
+                <p className="text-sm text-red-400 mt-3">{usernameError}</p>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 mt-5">
+                <Button
+                  variant="secondary"
+                  onClick={handleCancelUsernameModal}
+                  disabled={isSavingUsername}
+                  className="w-full"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => { void handleConfirmUsername() }}
+                  isLoading={isSavingUsername}
+                  disabled={isSavingUsername || sanitizeUsernameInput(usernameDraft).length < USERNAME_MIN_LENGTH}
+                  className="w-full"
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="w-full max-w-sm">
         <h1 className="text-3xl font-bold text-white text-center mb-2">Join a Session</h1>
         <p className="text-white/60 text-center mb-8">Enter 6-digit code</p>
@@ -281,7 +560,7 @@ function JoinSessionPage() {
               value={char}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
-              disabled={isLoading || isVerifying}
+              disabled={isLoading || isVerifying || showUsernameModal || isSavingUsername}
               className={`
                 w-12 h-12 text-center text-xl font-bold rounded-xl
                 bg-[#141D2B] text-white
@@ -314,7 +593,7 @@ function JoinSessionPage() {
           ref={joinButtonRef}
           onClick={handleJoin} 
           isLoading={isLoading && !isVerifying} 
-          disabled={!isCodeComplete || isLoading || isVerifying} 
+          disabled={!isCodeComplete || isLoading || isVerifying || showUsernameModal || isSavingUsername} 
           className="w-full mb-4"
         >
           {isVerifying ? 'Verifying...' : isLoading ? 'Joining...' : 'Join Session'}
@@ -329,7 +608,7 @@ function JoinSessionPage() {
             }
             navigate({ to: '/session' })
           }}
-          disabled={isLoading || isVerifying}
+          disabled={isLoading || isVerifying || isSavingUsername}
           className="w-full"
         >
           Cancel
