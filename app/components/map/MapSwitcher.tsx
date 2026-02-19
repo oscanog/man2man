@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layers3, Map as MapIcon } from 'lucide-react'
 import { useMapModePreference, type MapMode } from '@/hooks/useMapModePreference'
-import type { CameraState, Location } from '@/components/map/types'
+import type { CameraState, Location, RoutePath } from '@/components/map/types'
 import { LeafletMapProvider } from '@/components/map/providers/LeafletMap'
 import { GoogleMapProvider } from '@/components/map/providers/GoogleMap'
 
@@ -10,6 +10,7 @@ const ANIMATION_DURATION_MS = 320
 interface MapSwitcherProps {
   myLocation: Location | null
   partnerLocation: Location | null
+  routePath?: RoutePath | null
   zoom?: number
   isPartnerConnected?: boolean
   userId?: string | null
@@ -36,6 +37,7 @@ function getDirection(targetMode: MapMode): SlideDirection {
 export function MapSwitcher({
   myLocation,
   partnerLocation,
+  routePath = null,
   zoom = 15,
   isPartnerConnected = false,
   userId,
@@ -155,6 +157,7 @@ export function MapSwitcher({
           mapId={googleMapId || undefined}
           myLocation={myLocation}
           partnerLocation={partnerLocation}
+          routePath={routePath}
           zoom={zoom}
           initialCamera={getInitialCamera('google')}
           onCameraChange={(camera) => {
@@ -169,17 +172,18 @@ export function MapSwitcher({
     }
 
     return (
-      <LeafletMapProvider
-        myLocation={myLocation}
-        partnerLocation={partnerLocation}
-        zoom={zoom}
-        initialCamera={getInitialCamera('leaflet')}
+        <LeafletMapProvider
+          myLocation={myLocation}
+          partnerLocation={partnerLocation}
+          routePath={routePath}
+          zoom={zoom}
+          initialCamera={getInitialCamera('leaflet')}
         onCameraChange={(camera) => {
           cameraByModeRef.current.leaflet = camera
         }}
       />
     )
-  }, [getInitialCamera, googleMapId, googleMapsApiKey, myLocation, partnerLocation, setMode, setTransientNotice, zoom])
+  }, [getInitialCamera, googleMapId, googleMapsApiKey, myLocation, partnerLocation, routePath, setMode, setTransientNotice, zoom])
 
   const activeLayerClass = useMemo(() => {
     if (transitionPhase !== 'running') return 'translate-x-0'

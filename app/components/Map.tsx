@@ -7,11 +7,12 @@
 
 import { useEffect, useState } from 'react'
 import { MapSwitcher } from '@/components/map/MapSwitcher'
-import type { Location } from '@/components/map/types'
+import type { Location, RoutePath } from '@/components/map/types'
 
 interface MapProps {
   myLocation: Location | null
   partnerLocation: Location | null
+  routePath?: RoutePath | null
   zoom?: number
   isPartnerConnected?: boolean
   userId?: string | null
@@ -20,6 +21,7 @@ interface MapProps {
 export function Map({
   myLocation,
   partnerLocation,
+  routePath = null,
   zoom = 15,
   isPartnerConnected = false,
   userId,
@@ -28,6 +30,7 @@ export function Map({
     <MapSwitcher
       myLocation={myLocation}
       partnerLocation={partnerLocation}
+      routePath={routePath}
       zoom={zoom}
       isPartnerConnected={isPartnerConnected}
       userId={userId}

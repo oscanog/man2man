@@ -229,6 +229,48 @@ export async function convexMutation<T>(
 }
 
 /**
+ * Call a Convex action (side-effecting server logic)
+ */
+export async function convexAction<T>(
+  path: string,
+  args: Record<string, unknown> = {},
+  retryConfig?: RetryConfig
+): Promise<T> {
+  return withRetry(async () => {
+    const response = await fetch(`${CONVEX_URL}/api/action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ path, args } satisfies ConvexRequest),
+    })
+
+    const responseText = await response.text()
+
+    if (!response.ok) {
+      throw new Error(`Convex action failed (${response.status}): ${responseText}`)
+    }
+
+    let data: ConvexResponse<T>
+    try {
+      data = JSON.parse(responseText) as ConvexResponse<T>
+    } catch {
+      throw new Error(`Invalid Convex response: ${responseText}`)
+    }
+
+    if (data.status === 'error') {
+      const error = decodeConvexError(data)
+      if (import.meta.env.DEV) {
+        console.error('[convexAction] action failed', { path, args, response: data, parsedMessage: error.message })
+      }
+      throw error
+    }
+
+    return data.value as T
+  }, `action:${path}`, retryConfig)
+}
+
+/**
  * Subscribe to a Convex query (using polling for HTTP)
  */
 export function subscribeConvexQuery<T>(

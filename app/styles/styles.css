@@ -72,6 +72,14 @@
   --color-onboard-suggestion-text: #cbd5e1;
   --color-onboard-suggestion-chip-bg: rgba(255, 3, 91, 0.14);
   --color-onboard-suggestion-chip-text: #ff7fa9;
+
+  /* Live route visuals */
+  --route-line-halo: rgba(244, 248, 255, 0.82);
+  --route-line-core: #00d4ff;
+  --route-chip-bg: rgba(12, 22, 39, 0.74);
+  --route-chip-border: rgba(255, 255, 255, 0.24);
+  --route-chip-text: #ffffff;
+  --route-chip-muted: #b8c4d6;
   
   /* Spacing Scale (Mobile-first: 4px base) */
   --space-1: 4px;
@@ -147,6 +155,12 @@
   --color-onboard-suggestion-text: #334155;
   --color-onboard-suggestion-chip-bg: rgba(255, 3, 91, 0.1);
   --color-onboard-suggestion-chip-text: #b20042;
+  --route-line-halo: rgba(9, 23, 47, 0.52);
+  --route-line-core: #0078ff;
+  --route-chip-bg: rgba(248, 251, 255, 0.9);
+  --route-chip-border: rgba(15, 23, 42, 0.2);
+  --route-chip-text: #0f172a;
+  --route-chip-muted: #334155;
 }
 
 :root[data-theme='dark'] {
@@ -185,6 +199,12 @@
   --color-onboard-suggestion-text: #cbd5e1;
   --color-onboard-suggestion-chip-bg: rgba(255, 3, 91, 0.14);
   --color-onboard-suggestion-chip-text: #ff7fa9;
+  --route-line-halo: rgba(244, 248, 255, 0.82);
+  --route-line-core: #00d4ff;
+  --route-chip-bg: rgba(12, 22, 39, 0.74);
+  --route-chip-border: rgba(255, 255, 255, 0.24);
+  --route-chip-text: #ffffff;
+  --route-chip-muted: #b8c4d6;
 }
 
 @media (prefers-color-scheme: light) {
@@ -224,6 +244,12 @@
     --color-onboard-suggestion-text: #334155;
     --color-onboard-suggestion-chip-bg: rgba(255, 3, 91, 0.1);
     --color-onboard-suggestion-chip-text: #b20042;
+    --route-line-halo: rgba(9, 23, 47, 0.52);
+    --route-line-core: #0078ff;
+    --route-chip-bg: rgba(248, 251, 255, 0.9);
+    --route-chip-border: rgba(15, 23, 42, 0.2);
+    --route-chip-text: #0f172a;
+    --route-chip-muted: #334155;
   }
 }
 
@@ -255,6 +281,37 @@ body {
   padding-bottom: var(--safe-area-bottom);
   padding-left: var(--safe-area-left);
   padding-right: var(--safe-area-right);
+}
+
+.route-info-chip {
+  border-radius: 9999px;
+  border: 1px solid var(--route-chip-border);
+  background: var(--route-chip-bg);
+  color: var(--route-chip-text);
+  backdrop-filter: blur(10px);
+  padding: 10px 16px;
+  min-width: 160px;
+}
+
+.route-info-chip__label {
+  color: var(--route-chip-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.route-info-chip__value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-info-chip {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 /* ============================================

@@ -11,6 +11,7 @@ import {
 import { OnlineUsersDrawer } from '@/components/sidebar/OnlineUsersDrawer'
 import type { OnlineUser } from '@/hooks'
 import { useSessionInvites } from '@/hooks/useSessionInvites'
+import { useLiveRoute } from '@/hooks/useLiveRoute'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { useOnlineUsers } from '@/hooks/useOnlineUsers'
@@ -82,6 +83,11 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`
 }
 
+function formatEta(seconds: number): string {
+  const mins = Math.max(1, Math.round(seconds / 60))
+  return `${mins} min`
+}
+
 /**
  * Exponential backoff delay calculation
  */
@@ -129,6 +135,7 @@ function MapPage() {
 
   const userId = storage.getUserId()
   const username = storage.getUsername()
+  const isLiveRouteEnabled = (import.meta.env.VITE_FEATURE_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
   const partnerName = partnerUser?.username?.trim() || null
@@ -152,6 +159,14 @@ function MapPage() {
     cancelOutgoingInvite,
     clearActionError,
   } = useSessionInvites(userId)
+  const { routePath } = useLiveRoute({
+    sessionId,
+    userId,
+    myLocation,
+    partnerLocation,
+    isPartnerConnected,
+    enabled: Boolean(isAuthenticated) && isLiveRouteEnabled,
+  })
 
   const handleTerminalExit = useCallback((message: string, route: 'session' | 'join' = 'session') => {
     if (hasExitedSessionRef.current) return
@@ -748,6 +763,7 @@ function MapPage() {
         <Map
           myLocation={myLocation}
           partnerLocation={partnerLocation}
+          routePath={routePath}
           isPartnerConnected={isPartnerConnected}
           userId={userId}
         />
@@ -850,8 +866,20 @@ function MapPage() {
           </div>
         )}
 
-        {/* Distance display */}
-        {isPartnerConnected && distance && (
+        {/* Fastest-route display */}
+        {isPartnerConnected && isLiveRouteEnabled && routePath?.points?.length && routePath.trafficDurationSeconds && routePath.distanceMeters ? (
+          <div className="mt-4 flex justify-center">
+            <div className="route-info-chip">
+              <p className="route-info-chip__label">Fastest road</p>
+              <p className="route-info-chip__value">
+                {formatEta(routePath.trafficDurationSeconds)} · {formatDistance(routePath.distanceMeters)}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Distance fallback display */}
+        {isPartnerConnected && (!isLiveRouteEnabled || !routePath?.points?.length) && distance && (
           <div className="mt-4 flex justify-center">
             <div className="bg-[#FF035B] rounded-full px-6 py-3">
               <p className="text-white/80 text-xs text-center">Distance</p>

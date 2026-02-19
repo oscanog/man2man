@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { MapProviderProps } from '@/components/map/types'
 
 const FIT_BOUNDS_INTERVAL_MS = 1400
+const ROUTE_FIT_RECHECK_MS = 6000
 const DEFAULT_ZOOM = 15
 const DEFAULT_CENTER = { lat: 0, lng: 0 }
 
@@ -17,6 +18,7 @@ function createMarkerIcon(L: any, color: string) {
 export function LeafletMapProvider({
   myLocation,
   partnerLocation,
+  routePath,
   zoom = DEFAULT_ZOOM,
   onCameraChange,
   initialCamera,
@@ -26,7 +28,10 @@ export function LeafletMapProvider({
   const leafletRef = useRef<any>(null)
   const myMarkerRef = useRef<any>(null)
   const partnerMarkerRef = useRef<any>(null)
+  const routeHaloRef = useRef<any>(null)
+  const routeCoreRef = useRef<any>(null)
   const hasCenteredRef = useRef(false)
+  const hasRouteCenteredRef = useRef(false)
   const lastFitBoundsAtRef = useRef(0)
   const ignoreCameraChangeRef = useRef(false)
 
@@ -92,6 +97,8 @@ export function LeafletMapProvider({
       leafletRef.current = null
       myMarkerRef.current = null
       partnerMarkerRef.current = null
+      routeHaloRef.current = null
+      routeCoreRef.current = null
     }
   }, [])
 
@@ -126,6 +133,84 @@ export function LeafletMapProvider({
     updateMarker(myMarkerRef, myLocation, '#2196F3')
     updateMarker(partnerMarkerRef, partnerLocation, '#E91E63')
 
+    const removeRoute = () => {
+      if (routeHaloRef.current) {
+        map.removeLayer(routeHaloRef.current)
+        routeHaloRef.current = null
+      }
+      if (routeCoreRef.current) {
+        map.removeLayer(routeCoreRef.current)
+        routeCoreRef.current = null
+      }
+      hasRouteCenteredRef.current = false
+    }
+
+    const routePoints = routePath?.points ?? []
+    const hasRoute = routePoints.length >= 2
+
+    if (!hasRoute) {
+      removeRoute()
+    } else {
+      const css = window.getComputedStyle(document.documentElement)
+      const haloColor = css.getPropertyValue('--route-line-halo').trim() || '#FFFFFF'
+      const coreColor = css.getPropertyValue('--route-line-core').trim() || '#00D4FF'
+      const dashArray = routePath?.isUsersMoving ? '10 16' : undefined
+      const latLngs = routePoints.map((point) => [point.lat, point.lng])
+
+      if (!routeHaloRef.current) {
+        routeHaloRef.current = L.polyline(latLngs, {
+          color: haloColor,
+          weight: 10,
+          opacity: 0.72,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(map)
+      } else {
+        routeHaloRef.current.setLatLngs(latLngs)
+        routeHaloRef.current.setStyle({
+          color: haloColor,
+          opacity: 0.72,
+        })
+      }
+
+      if (!routeCoreRef.current) {
+        routeCoreRef.current = L.polyline(latLngs, {
+          color: coreColor,
+          weight: 5,
+          opacity: 0.96,
+          dashArray,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(map)
+      } else {
+        routeCoreRef.current.setLatLngs(latLngs)
+        routeCoreRef.current.setStyle({
+          color: coreColor,
+          opacity: 0.96,
+          dashArray,
+        })
+      }
+    }
+
+    if (hasRoute) {
+      const now = Date.now()
+      if (!hasRouteCenteredRef.current || now - lastFitBoundsAtRef.current >= ROUTE_FIT_RECHECK_MS) {
+        ignoreCameraChangeRef.current = true
+        const firstPoint = routePoints[0]
+        const bounds = L.latLngBounds([firstPoint.lat, firstPoint.lng], [firstPoint.lat, firstPoint.lng])
+        for (const point of routePoints) {
+          bounds.extend([point.lat, point.lng])
+        }
+        map.fitBounds(bounds, { padding: [56, 56], maxZoom: 17, animate: true })
+        lastFitBoundsAtRef.current = now
+        hasRouteCenteredRef.current = true
+        window.setTimeout(() => {
+          ignoreCameraChangeRef.current = false
+        }, 420)
+      }
+      return
+    }
+
     // Keep both users in view, but throttle fitBounds to avoid jitter and lag.
     if (myLocation && partnerLocation) {
       const now = Date.now()
@@ -153,7 +238,7 @@ export function LeafletMapProvider({
         ignoreCameraChangeRef.current = false
       }, 320)
     }
-  }, [myLocation, partnerLocation, zoom, initialCamera?.zoom])
+  }, [myLocation, partnerLocation, routePath, zoom, initialCamera?.zoom])
 
   return <div ref={mapContainerRef} className="h-full w-full bg-[#111827]" />
 }
