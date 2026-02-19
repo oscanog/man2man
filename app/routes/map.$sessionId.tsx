@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { useOnlineUsers } from '@/hooks/useOnlineUsers'
 import { storage } from '@/lib/storage'
+import { clearPendingJoinHandoff } from '@/lib/joinHandoff'
 
 // Lazy load map component to avoid SSR issues
 const Map = lazy(() => import('@/components/Map').then(m => ({ default: m.Map })))
@@ -128,6 +129,7 @@ function MapPage() {
   const mapFlowIdRef = useRef(`map-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
   const lastParticipantSnapshotRef = useRef<string | null>(null)
   const lastSessionSnapshotRef = useRef<string | null>(null)
+  const renderLoggedRef = useRef(false)
   const logMap = useCallback((event: string, payload?: unknown) => {
     if (payload !== undefined) {
       console.log(`[MapFlow:${mapFlowIdRef.current}] ${event}`, payload)
@@ -145,6 +147,10 @@ function MapPage() {
 
   const userId = storage.getUserId()
   const username = storage.getUsername()
+  if (!renderLoggedRef.current) {
+    renderLoggedRef.current = true
+    console.log(`[MapFlow:${mapFlowIdRef.current}] render-enter`, { sessionId, userId, username })
+  }
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
   const partnerName = partnerUser?.username?.trim() || null
@@ -206,6 +212,7 @@ function MapPage() {
   useEffect(() => {
     const auth = storage.getAuth()
     const authenticated = storage.isAuthenticated()
+    clearPendingJoinHandoff()
     logMap('route-enter', {
       sessionId,
       authenticated,

@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { HeadContent, Link, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
+import { useEffect, useRef } from 'react'
+import { HeadContent, Link, Scripts, createRootRoute, Outlet, useRouterState } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 
@@ -41,6 +41,8 @@ function RootDocument() {
   // Register service worker on mount
   const { register } = useServiceWorker()
   usePresenceHeartbeat()
+  const location = useRouterState({ select: (state) => state.location })
+  const previousPathRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
@@ -59,6 +61,45 @@ function RootDocument() {
       })
     })
   }, [register])
+
+  useEffect(() => {
+    const search =
+      location.search && Object.keys(location.search as Record<string, unknown>).length > 0
+        ? location.search
+        : undefined
+    console.log('[NavFlow] route-change', {
+      from: previousPathRef.current,
+      to: location.pathname,
+      search,
+      hash: location.hash || undefined,
+    })
+    previousPathRef.current = location.pathname
+  }, [location.hash, location.pathname, location.search])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const onError = (event: ErrorEvent) => {
+      console.error('[NavFlow] window-error', {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+      })
+    }
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error('[NavFlow] unhandled-rejection', event.reason)
+    }
+
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onUnhandledRejection)
+
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onUnhandledRejection)
+    }
+  }, [])
 
   return (
     <html lang="en">

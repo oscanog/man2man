@@ -1,197 +1,177 @@
 // Man2Man Service Worker
-const CACHE_NAME = 'man2man-v1';
+const CACHE_NAME = "man2man-v2";
 
-// Static assets to cache on install
+// Keep precache minimal and guaranteed to exist to avoid install failures.
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.ico',
-  '/logo192.png',
-  '/logo512.png',
-  '/icons/icon-72x72.png',
-  '/icons/icon-96x96.png',
-  '/icons/icon-128x128.png',
-  '/icons/icon-144x144.png',
-  '/icons/icon-152x152.png',
-  '/icons/icon-192x192.png',
-  '/icons/icon-384x384.png',
-  '/icons/icon-512x512.png',
+  "/",
+  "/manifest.json",
+  "/favicon.ico",
 ];
 
-// Install event - cache static assets
-self.addEventListener('install', (event) => {
-  console.log('[Service Worker] Installing...');
-  
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('[Service Worker] Caching static assets');
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .catch((error) => {
-        console.error('[Service Worker] Cache failed:', error);
-      })
+function isSameOrigin(url) {
+  return url.startsWith(self.location.origin);
+}
+
+function isApiRequest(url) {
+  return url.includes("/api/") || url.includes("convex.cloud") || url.includes("/convex/");
+}
+
+function isStaticAssetRequest(pathname) {
+  return (
+    pathname.startsWith("/assets/") ||
+    pathname.endsWith(".js") ||
+    pathname.endsWith(".css") ||
+    pathname.endsWith(".svg") ||
+    pathname.endsWith(".png") ||
+    pathname.endsWith(".jpg") ||
+    pathname.endsWith(".jpeg") ||
+    pathname.endsWith(".webp") ||
+    pathname.endsWith(".ico") ||
+    pathname.endsWith(".woff2")
   );
-  
-  // Skip waiting to activate immediately
+}
+
+async function precacheAssets() {
+  const cache = await caches.open(CACHE_NAME);
+  const results = await Promise.allSettled(
+    STATIC_ASSETS.map(async (asset) => {
+      try {
+        await cache.add(asset);
+        console.log("[SWFlow] precache success", asset);
+      } catch (err) {
+        console.warn("[SWFlow] precache skipped", asset, err);
+      }
+    }),
+  );
+
+  const failed = results.filter((result) => result.status === "rejected").length;
+  if (failed > 0) {
+    console.warn("[SWFlow] precache completed with failures", { failed });
+  }
+}
+
+self.addEventListener("install", (event) => {
+  console.log("[SWFlow] installing...");
+  event.waitUntil(precacheAssets());
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
-  console.log('[Service Worker] Activating...');
-  
+self.addEventListener("activate", (event) => {
+  console.log("[SWFlow] activating...");
   event.waitUntil(
-    caches.keys()
-      .then((cacheNames) => {
-        return Promise.all(
+    caches
+      .keys()
+      .then((cacheNames) =>
+        Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== CACHE_NAME) {
-              console.log('[Service Worker] Deleting old cache:', cacheName);
+              console.log("[SWFlow] deleting old cache", cacheName);
               return caches.delete(cacheName);
             }
-          })
-        );
-      })
-      .then(() => {
-        console.log('[Service Worker] Claiming clients');
-        return self.clients.claim();
-      })
+            return Promise.resolve(false);
+          }),
+        ),
+      )
+      .then(() => self.clients.claim()),
   );
 });
 
-// Fetch event - serve from cache or network
-self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
-  
-  // Skip cross-origin requests
-  if (!event.request.url.startsWith(self.location.origin)) {
-    return;
-  }
-  
-  // Skip API requests (don't cache dynamic data)
-  if (event.request.url.includes('/api/') || event.request.url.includes('convex')) {
-    return;
-  }
-  
-  event.respondWith(
-    caches.match(event.request)
-      .then((cachedResponse) => {
-        // Return cached response if found
-        if (cachedResponse) {
-          // Fetch new version in background for next time
-          fetch(event.request)
-            .then((networkResponse) => {
-              if (networkResponse && networkResponse.status === 200) {
-                caches.open(CACHE_NAME).then((cache) => {
-                  cache.put(event.request, networkResponse.clone());
-                });
-              }
-            })
-            .catch(() => {
-              // Network fetch failed, but we have cached version
-            });
-          
-          return cachedResponse;
+async function cacheFirst(event, cache) {
+  const cached = await cache.match(event.request);
+  if (cached) {
+    void fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          void cache.put(event.request, networkResponse.clone());
         }
-        
-        // Not in cache, fetch from network
-        return fetch(event.request)
-          .then((networkResponse) => {
-            // Don't cache non-successful responses
-            if (!networkResponse || networkResponse.status !== 200) {
-              return networkResponse;
-            }
-            
-            // Clone response to cache it
-            const responseToCache = networkResponse.clone();
-            
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-            
-            return networkResponse;
-          })
-          .catch((error) => {
-            console.error('[Service Worker] Fetch failed:', error);
-            
-            // Return offline fallback for navigation requests
-            if (event.request.mode === 'navigate') {
-              return caches.match('/');
-            }
-            
-            throw error;
-          });
       })
-  );
-});
-
-// Push notification event
-self.addEventListener('push', (event) => {
-  console.log('[Service Worker] Push received:', event);
-  
-  const options = {
-    body: event.data?.text() || 'New notification from Man2Man',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-72x72.png',
-    tag: 'man2man-notification',
-    requireInteraction: false,
-    actions: [
-      {
-        action: 'open',
-        title: 'Open App',
-      },
-      {
-        action: 'close',
-        title: 'Dismiss',
-      },
-    ],
-  };
-  
-  event.waitUntil(
-    self.registration.showNotification('Man2Man', options)
-  );
-});
-
-// Notification click event
-self.addEventListener('notificationclick', (event) => {
-  console.log('[Service Worker] Notification clicked:', event);
-  
-  event.notification.close();
-  
-  if (event.action === 'close') {
-    return;
+      .catch(() => {
+        // Ignore background refresh failures.
+      });
+    return cached;
   }
-  
-  event.waitUntil(
-    clients.openWindow('/')
-  );
-});
 
-// Background sync event (for offline form submissions)
-self.addEventListener('sync', (event) => {
-  console.log('[Service Worker] Background sync:', event.tag);
-  
-  if (event.tag === 'sync-location-updates') {
-    // Handle pending location updates
-    event.waitUntil(syncLocationUpdates());
+  const networkResponse = await fetch(event.request);
+  if (networkResponse && networkResponse.status === 200) {
+    void cache.put(event.request, networkResponse.clone());
   }
-});
-
-async function syncLocationUpdates() {
-  // This would sync any queued location updates when back online
-  console.log('[Service Worker] Syncing location updates...');
+  return networkResponse;
 }
 
-// Message event (communication with main app)
-self.addEventListener('message', (event) => {
-  console.log('[Service Worker] Message received:', event.data);
-  
-  if (event.data === 'skipWaiting') {
+async function networkFirstNavigation(event, cache) {
+  try {
+    const networkResponse = await fetch(event.request);
+    if (networkResponse && networkResponse.status === 200) {
+      void cache.put(event.request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    console.warn("[SWFlow] navigation network failed, falling back to cache", {
+      url: event.request.url,
+      error,
+    });
+
+    const cachedResponse = await cache.match(event.request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+
+    const cachedRoot = await cache.match("/");
+    if (cachedRoot) {
+      return cachedRoot;
+    }
+
+    return Response.error();
+  }
+}
+
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+
+  const url = new URL(event.request.url);
+  if (!isSameOrigin(url.href)) return;
+  if (isApiRequest(url.href)) return;
+
+  event.respondWith(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Navigation requests must be network-first to avoid stale app-shell redirects.
+      if (event.request.mode === "navigate") {
+        return networkFirstNavigation(event, cache);
+      }
+
+      if (isStaticAssetRequest(url.pathname)) {
+        try {
+          return await cacheFirst(event, cache);
+        } catch (error) {
+          console.warn("[SWFlow] static asset fetch failed", { url: event.request.url, error });
+          const cached = await cache.match(event.request);
+          if (cached) return cached;
+          throw error;
+        }
+      }
+
+      // Default strategy: network first with cache fallback.
+      try {
+        const networkResponse = await fetch(event.request);
+        if (networkResponse && networkResponse.status === 200) {
+          void cache.put(event.request, networkResponse.clone());
+        }
+        return networkResponse;
+      } catch (error) {
+        console.warn("[SWFlow] network-first fallback to cache", {
+          url: event.request.url,
+          error,
+        });
+        const cached = await cache.match(event.request);
+        if (cached) return cached;
+        throw error;
+      }
+    }),
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data === "skipWaiting") {
     self.skipWaiting();
   }
 });

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { convexMutation, convexQuery, pollWithTimeout } from '@/lib/convex'
 import { storage } from '@/lib/storage'
+import { clearPendingJoinHandoff, savePendingJoinHandoff } from '@/lib/joinHandoff'
 import {
   generateGuestUsername,
   parseSuggestedUsername,
@@ -429,10 +430,30 @@ function JoinSessionPage() {
         throw new Error('Join verification failed. The session may be full or no longer available.')
       }
       
+      savePendingJoinHandoff({
+        sessionId: result.sessionId,
+        code: fullCode,
+        userId,
+        source: isSharedLinkEntry ? 'shared_link' : isFromList ? 'list' : 'manual',
+        createdAt: Date.now(),
+      })
+      logJoin('join:handoff-saved', { sessionId: result.sessionId, source: isSharedLinkEntry ? 'shared_link' : isFromList ? 'list' : 'manual' })
       logJoin('join:navigate-map', { sessionId: result.sessionId })
       navigate({ to: '/map/$sessionId', params: { sessionId: result.sessionId } })
+      setTimeout(() => {
+        if (typeof window === 'undefined') return
+        const isOnMapRoute = window.location.pathname.startsWith('/map/')
+        if (!isOnMapRoute) {
+          logJoin('join:navigate-recovery-hard-redirect', {
+            currentPath: window.location.pathname,
+            expectedSessionId: result.sessionId,
+          })
+          window.location.assign(`/map/${result.sessionId}`)
+        }
+      }, 900)
       
     } catch (err) {
+      clearPendingJoinHandoff()
       logJoin('join:failed', err)
       let message = 'Failed to join session'
 

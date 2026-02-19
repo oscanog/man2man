@@ -2,6 +2,11 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/Button'
 import { storage } from '@/lib/storage'
+import {
+  clearPendingJoinHandoff,
+  getPendingJoinHandoff,
+  isPendingJoinFresh,
+} from '@/lib/joinHandoff'
 
 export const Route = createFileRoute('/session/')({
   component: SessionHomePage,
@@ -14,6 +19,40 @@ function SessionHomePage() {
   useEffect(() => {
     setUsername(storage.getUsername())
   }, [])
+
+  useEffect(() => {
+    const pending = getPendingJoinHandoff()
+    if (!pending) {
+      return
+    }
+
+    const activeUserId = storage.getUserId()
+    if (!activeUserId || activeUserId !== pending.userId) {
+      console.warn('[JoinFlow:resume] clearing pending handoff due to user mismatch', {
+        activeUserId,
+        pendingUserId: pending.userId,
+        sessionId: pending.sessionId,
+      })
+      clearPendingJoinHandoff()
+      return
+    }
+
+    if (!isPendingJoinFresh(pending)) {
+      console.warn('[JoinFlow:resume] clearing stale pending handoff', {
+        sessionId: pending.sessionId,
+        createdAt: pending.createdAt,
+      })
+      clearPendingJoinHandoff()
+      return
+    }
+
+    console.warn('[JoinFlow:resume] detected unexpected fallback to /session, resuming map handoff', {
+      sessionId: pending.sessionId,
+      source: pending.source,
+    })
+    clearPendingJoinHandoff()
+    navigate({ to: '/map/$sessionId', params: { sessionId: pending.sessionId } })
+  }, [navigate])
 
   return (
     <div className="flex flex-col items-center justify-center px-6 pt-8">
