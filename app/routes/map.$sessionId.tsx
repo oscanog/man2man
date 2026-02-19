@@ -748,6 +748,8 @@ function MapPage() {
         <Map
           myLocation={myLocation}
           partnerLocation={partnerLocation}
+          isPartnerConnected={isPartnerConnected}
+          userId={userId}
         />
       </Suspense>
 
