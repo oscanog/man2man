@@ -16,6 +16,9 @@ export function GoogleMapProvider({
   myLocation,
   partnerLocation,
   routePath,
+  routePaths,
+  meetingPlaceLocation,
+  currentUserId,
   zoom = DEFAULT_ZOOM,
   mapId,
   onCameraChange,
@@ -30,8 +33,8 @@ export function GoogleMapProvider({
   const mapRef = useRef<any>(null)
   const myMarkerRef = useRef<any>(null)
   const partnerMarkerRef = useRef<any>(null)
-  const routeHaloRef = useRef<any>(null)
-  const routeCoreRef = useRef<any>(null)
+  const meetingMarkerRef = useRef<any>(null)
+  const routeLayersRef = useRef<Map<string, { halo: any; core: any }>>(new Map())
   const listenersRef = useRef<any[]>([])
   const hasCenteredRef = useRef(false)
   const hasRouteCenteredRef = useRef(false)
@@ -123,12 +126,15 @@ export function GoogleMapProvider({
       listenersRef.current = []
       if (myMarkerRef.current) myMarkerRef.current.map = null
       if (partnerMarkerRef.current) partnerMarkerRef.current.map = null
-      if (routeHaloRef.current) routeHaloRef.current.setMap(null)
-      if (routeCoreRef.current) routeCoreRef.current.setMap(null)
+      if (meetingMarkerRef.current) meetingMarkerRef.current.map = null
+      for (const layers of routeLayersRef.current.values()) {
+        layers.halo?.setMap?.(null)
+        layers.core?.setMap?.(null)
+      }
       myMarkerRef.current = null
       partnerMarkerRef.current = null
-      routeHaloRef.current = null
-      routeCoreRef.current = null
+      meetingMarkerRef.current = null
+      routeLayersRef.current.clear()
       advancedMarkerCtorRef.current = null
       latLngBoundsCtorRef.current = null
       mapRef.current = null
@@ -203,51 +209,34 @@ export function GoogleMapProvider({
       }
     }
 
+    const css = window.getComputedStyle(document.documentElement)
+    const meetingMarkerColor = css.getPropertyValue('--color-meeting-marker').trim() || '#FFB300'
     updateMarker(myMarkerRef, myLocation, '#2196F3')
     updateMarker(partnerMarkerRef, partnerLocation, '#E91E63')
+    updateMarker(meetingMarkerRef, meetingPlaceLocation ?? null, meetingMarkerColor)
 
-    const removeRoute = () => {
-      if (routeHaloRef.current) {
-        routeHaloRef.current.setMap(null)
-        routeHaloRef.current = null
-      }
-      if (routeCoreRef.current) {
-        routeCoreRef.current.setMap(null)
-        routeCoreRef.current = null
-      }
-      hasRouteCenteredRef.current = false
-    }
+    const activeRoutesRaw = routePaths && routePaths.length > 0
+      ? routePaths
+      : routePath
+        ? [routePath]
+        : []
+    const activeRoutes = activeRoutesRaw.filter((route) => route.points.length >= 2)
+    const activeRouteKeys = new Set<string>()
 
-    const routePoints = routePath?.points ?? []
-    const hasRoute = routePoints.length >= 2
+    const haloColor = css.getPropertyValue('--route-line-halo').trim() || '#FFFFFF'
+    const coreDefault = css.getPropertyValue('--route-line-core').trim() || '#00D4FF'
+    const coreMine = css.getPropertyValue('--route-line-core-mine').trim() || coreDefault
+    const corePartner = css.getPropertyValue('--route-line-core-partner').trim() || '#FF7AA2'
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
 
-    if (!hasRoute) {
-      removeRoute()
-    } else {
-      const css = window.getComputedStyle(document.documentElement)
-      const haloColor = css.getPropertyValue('--route-line-halo').trim() || '#FFFFFF'
-      const coreColor = css.getPropertyValue('--route-line-core').trim() || '#00D4FF'
-      const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
-      const moving = Boolean(routePath?.isUsersMoving && !prefersReducedMotion)
-      const path = routePoints.map((point) => ({ lat: point.lat, lng: point.lng }))
-
-      if (!routeHaloRef.current) {
-        routeHaloRef.current = new maps.Polyline({
-          map,
-          path,
-          strokeColor: haloColor,
-          strokeOpacity: 0.7,
-          strokeWeight: 10,
-          clickable: false,
-          zIndex: 5,
-        })
-      } else {
-        routeHaloRef.current.setPath(path)
-        routeHaloRef.current.setOptions({
-          strokeColor: haloColor,
-          strokeOpacity: 0.7,
-        })
-      }
+    activeRoutes.forEach((route, index) => {
+      const routeKey = route.id || `route-${index}`
+      activeRouteKeys.add(routeKey)
+      const isMeetingRoute = route.destinationMode === 'meeting_place'
+      const isMine = Boolean(currentUserId && route.ownerUserId && route.ownerUserId === currentUserId)
+      const coreColor = isMeetingRoute ? (isMine ? coreMine : corePartner) : coreDefault
+      const moving = Boolean(route.isUsersMoving && !prefersReducedMotion)
+      const path = route.points.map((point) => ({ lat: point.lat, lng: point.lng }))
 
       const movingDashOptions = moving
         ? {
@@ -267,8 +256,18 @@ export function GoogleMapProvider({
             icons: [],
           }
 
-      if (!routeCoreRef.current) {
-        routeCoreRef.current = new maps.Polyline({
+      const existing = routeLayersRef.current.get(routeKey)
+      if (!existing) {
+        const halo = new maps.Polyline({
+          map,
+          path,
+          strokeColor: haloColor,
+          strokeOpacity: 0.7,
+          strokeWeight: 10,
+          clickable: false,
+          zIndex: 5,
+        })
+        const core = new maps.Polyline({
           map,
           path,
           strokeColor: coreColor,
@@ -277,27 +276,52 @@ export function GoogleMapProvider({
           zIndex: 6,
           ...movingDashOptions,
         })
-      } else {
-        routeCoreRef.current.setPath(path)
-        routeCoreRef.current.setOptions({
-          strokeColor: coreColor,
-          strokeWeight: 5,
-          ...movingDashOptions,
-        })
+        routeLayersRef.current.set(routeKey, { halo, core })
+        return
       }
+
+      existing.halo.setPath(path)
+      existing.halo.setOptions({
+        strokeColor: haloColor,
+        strokeOpacity: 0.7,
+      })
+      existing.core.setPath(path)
+      existing.core.setOptions({
+        strokeColor: coreColor,
+        strokeWeight: 5,
+        ...movingDashOptions,
+      })
+    })
+
+    for (const [routeKey, layers] of routeLayersRef.current.entries()) {
+      if (activeRouteKeys.has(routeKey)) continue
+      layers.halo?.setMap?.(null)
+      layers.core?.setMap?.(null)
+      routeLayersRef.current.delete(routeKey)
     }
 
-    if (hasRoute) {
+    const shouldFitComposite = activeRoutes.length > 0 || (myLocation && partnerLocation && meetingPlaceLocation)
+
+    if (shouldFitComposite) {
       const now = Date.now()
       if (!hasRouteCenteredRef.current || now - lastFitBoundsAtRef.current >= ROUTE_FIT_RECHECK_MS) {
         ignoreCameraChangeRef.current = true
         const LatLngBoundsCtor = latLngBoundsCtorRef.current
         if (typeof LatLngBoundsCtor === 'function') {
-          const bounds = new LatLngBoundsCtor()
-          for (const point of routePoints) {
-            bounds.extend({ lat: point.lat, lng: point.lng })
+          const seed = activeRoutes[0]?.points[0] ?? myLocation ?? partnerLocation ?? meetingPlaceLocation
+          if (seed) {
+            const bounds = new LatLngBoundsCtor()
+            bounds.extend(seed)
+            for (const route of activeRoutes) {
+              for (const point of route.points) {
+                bounds.extend({ lat: point.lat, lng: point.lng })
+              }
+            }
+            if (myLocation) bounds.extend(myLocation)
+            if (partnerLocation) bounds.extend(partnerLocation)
+            if (meetingPlaceLocation) bounds.extend(meetingPlaceLocation)
+            map.fitBounds(bounds, 56)
           }
-          map.fitBounds(bounds, 56)
         }
         lastFitBoundsAtRef.current = now
         hasRouteCenteredRef.current = true
@@ -307,6 +331,8 @@ export function GoogleMapProvider({
       }
       return
     }
+
+    hasRouteCenteredRef.current = false
 
     if (myLocation && partnerLocation) {
       const now = Date.now()
@@ -341,7 +367,7 @@ export function GoogleMapProvider({
         ignoreCameraChangeRef.current = false
       }, 320)
     }
-  }, [isReady, myLocation, partnerLocation, routePath, zoom, initialCamera?.zoom])
+  }, [currentUserId, isReady, meetingPlaceLocation, myLocation, partnerLocation, routePath, routePaths, zoom, initialCamera?.zoom])
 
   return <div ref={mapContainerRef} className="h-full w-full bg-[#111827]" />
 }

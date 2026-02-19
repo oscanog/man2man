@@ -48,3 +48,9 @@ export type { OnlineUser } from './useOnlineUsers'
 // Invite/session handshake hooks
 export { useSessionInvites } from './useSessionInvites'
 export type { IncomingInvite, OutgoingInvite, InviteStatus } from './useSessionInvites'
+
+// Meeting-place hooks
+export { useMeetingPlace } from './useMeetingPlace'
+export type { MeetingPlace, MeetingPlaceState, MeetingPlaceStatus } from './useMeetingPlace'
+export { useMeetingPlaceSearch } from './useMeetingPlaceSearch'
+export { useMeetingRoutes } from './useMeetingRoutes'

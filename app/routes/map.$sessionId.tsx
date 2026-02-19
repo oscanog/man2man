@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate, useParams, Navigate } from '@tanstack/react-router'
+﻿import { createFileRoute, useNavigate, useParams, Navigate } from '@tanstack/react-router'
 import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
-import { Menu, Loader2, RefreshCw, WifiOff } from 'lucide-react'
+import { Menu, Loader2, RefreshCw, WifiOff, MapPin } from 'lucide-react'
 import {
   AlreadyConnectedDialog,
   IncomingInviteDialog,
@@ -8,10 +8,18 @@ import {
   LeaveCurrentSessionConfirmDialog,
   OutgoingPendingDialog,
 } from '@/components/modals/SessionInviteDialogs'
+import {
+  MeetingPlaceConfirmDialog,
+  MeetingPlaceRemovalDecisionDialog,
+  MeetingPlaceRequestRemovalDialog,
+  MeetingPlaceSearchDialog,
+} from '@/components/modals/MeetingPlaceDialogs'
 import { OnlineUsersDrawer } from '@/components/sidebar/OnlineUsersDrawer'
-import type { OnlineUser } from '@/hooks'
+import type { MeetingPlace, OnlineUser } from '@/hooks'
 import { useSessionInvites } from '@/hooks/useSessionInvites'
-import { useLiveRoute } from '@/hooks/useLiveRoute'
+import { useMeetingPlace } from '@/hooks/useMeetingPlace'
+import { useMeetingPlaceSearch } from '@/hooks/useMeetingPlaceSearch'
+import { useMeetingRoutes } from '@/hooks/useMeetingRoutes'
 import { Button } from '@/components/ui/Button'
 import { convexMutation, convexQuery } from '@/lib/convex'
 import { useOnlineUsers } from '@/hooks/useOnlineUsers'
@@ -69,11 +77,11 @@ interface UpdateError {
 
 function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371e3
-  const φ1 = (lat1 * Math.PI) / 180
-  const φ2 = (lat2 * Math.PI) / 180
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+  const lat1Rad = (lat1 * Math.PI) / 180
+  const lat2Rad = (lat2 * Math.PI) / 180
+  const deltaLat = ((lat2 - lat1) * Math.PI) / 180
+  const deltaLng = ((lng2 - lng1) * Math.PI) / 180
+  const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) + Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return R * c
 }
@@ -116,6 +124,12 @@ function MapPage() {
   const [leaveForInviteError, setLeaveForInviteError] = useState<string | null>(null)
   const [isLeavingForInvite, setIsLeavingForInvite] = useState(false)
   const [alreadyConnectedName, setAlreadyConnectedName] = useState<string | null>(null)
+  const [isMeetingSearchOpen, setIsMeetingSearchOpen] = useState(false)
+  const [isMeetingConfirmOpen, setIsMeetingConfirmOpen] = useState(false)
+  const [isMeetingRemovalRequestOpen, setIsMeetingRemovalRequestOpen] = useState(false)
+  const [isMeetingRemovalDecisionOpen, setIsMeetingRemovalDecisionOpen] = useState(false)
+  const [selectedMeetingSuggestion, setSelectedMeetingSuggestion] = useState<MeetingPlace | null>(null)
+  const [meetingActionError, setMeetingActionError] = useState<string | null>(null)
 
   // Connection and retry state
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('connected')
@@ -130,12 +144,15 @@ function MapPage() {
   const lastPartnerPollRef = useRef(0)
   const hasExitedSessionRef = useRef(false)
   const handledInviteSessionIdRef = useRef<string | null>(null)
+  const handledMeetingRemovalPromptRef = useRef<string | null>(null)
   const terminalSessionSignalsRef = useRef(0)
   const nonParticipantSignalsRef = useRef(0)
 
   const userId = storage.getUserId()
   const username = storage.getUsername()
   const isLiveRouteEnabled = (import.meta.env.VITE_FEATURE_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
+  const isMeetingPlaceFeatureEnabled = (import.meta.env.VITE_FEATURE_MEETING_PLACE ?? 'false').toLowerCase() === 'true'
+  const isRoutingEnabled = Boolean(isAuthenticated) && (isLiveRouteEnabled || isMeetingPlaceFeatureEnabled)
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
   const partnerName = partnerUser?.username?.trim() || null
@@ -159,14 +176,59 @@ function MapPage() {
     cancelOutgoingInvite,
     clearActionError,
   } = useSessionInvites(userId)
-  const { routePath } = useLiveRoute({
+  const {
+    meetingPlace,
+    isMutating: isMeetingPlaceMutating,
+    error: meetingPlaceError,
+    setMeetingPlace,
+    requestRemoval,
+    respondRemoval,
+  } = useMeetingPlace({
+    sessionId,
+    userId,
+    enabled: Boolean(isAuthenticated) && isMeetingPlaceFeatureEnabled,
+  })
+  const {
+    query: meetingSearchQuery,
+    setQuery: setMeetingSearchQuery,
+    suggestions: meetingSuggestions,
+    isLoading: isMeetingSearchLoading,
+    error: meetingSearchError,
+  } = useMeetingPlaceSearch({
+    sessionId,
+    userId,
+    enabled: Boolean(isAuthenticated) && isMeetingPlaceFeatureEnabled && isMeetingSearchOpen,
+    debounceMs: 350,
+    minChars: 2,
+    maxResults: 8,
+  })
+  const {
+    routePaths,
+    mode: routeMode,
+  } = useMeetingRoutes({
     sessionId,
     userId,
     myLocation,
     partnerLocation,
     isPartnerConnected,
-    enabled: Boolean(isAuthenticated) && isLiveRouteEnabled,
+    enabled: isRoutingEnabled,
   })
+  const routePath = routePaths[0] ?? null
+  const meetingPlaceLocation = meetingPlace?.place
+    ? { lat: meetingPlace.place.lat, lng: meetingPlace.place.lng }
+    : null
+  const isMeetingPlaceActive =
+    meetingPlace?.status === 'set' || meetingPlace?.status === 'removal_requested'
+  const isWaitingForRemovalResponse =
+    meetingPlace?.status === 'removal_requested' && meetingPlace.removalRequestedBy === userId
+  const isPartnerRemovalRequestPending =
+    meetingPlace?.status === 'removal_requested' &&
+    Boolean(meetingPlace.removalRequestedBy) &&
+    meetingPlace.removalRequestedBy !== userId
+  const removalRequesterLabel = meetingPlace?.removalRequestedByUsername
+    ? `@${meetingPlace.removalRequestedByUsername}`
+    : '@partner'
+  const partnerDialogLabel = partnerName ? `@${partnerName}` : 'your partner'
 
   const handleTerminalExit = useCallback((message: string, route: 'session' | 'join' = 'session') => {
     if (hasExitedSessionRef.current) return
@@ -183,6 +245,12 @@ function MapPage() {
     setLeaveToInviteTarget(null)
     setLeaveForInviteError(null)
     setAlreadyConnectedName(null)
+    setIsMeetingSearchOpen(false)
+    setIsMeetingConfirmOpen(false)
+    setIsMeetingRemovalRequestOpen(false)
+    setIsMeetingRemovalDecisionOpen(false)
+    setSelectedMeetingSuggestion(null)
+    setMeetingActionError(null)
     setConnectionStatus('disconnected')
     setUpdateError(null)
 
@@ -219,6 +287,82 @@ function MapPage() {
       navigate({ to: '/map/$sessionId', params: { sessionId: outgoingInvite.sessionId } })
     }
   }, [outgoingInvite, navigate, sessionId])
+
+  useEffect(() => {
+    if (!isMeetingPlaceFeatureEnabled || !meetingPlace || !isPartnerRemovalRequestPending) {
+      return
+    }
+    const promptKey = `${meetingPlace.updatedAt ?? 0}:${meetingPlace.removalRequestedBy ?? ''}`
+    if (handledMeetingRemovalPromptRef.current === promptKey) {
+      return
+    }
+    handledMeetingRemovalPromptRef.current = promptKey
+    setMeetingActionError(null)
+    setIsMeetingRemovalDecisionOpen(true)
+  }, [isMeetingPlaceFeatureEnabled, isPartnerRemovalRequestPending, meetingPlace])
+
+  useEffect(() => {
+    if (isPartnerRemovalRequestPending) return
+    setIsMeetingRemovalDecisionOpen(false)
+  }, [isPartnerRemovalRequestPending])
+
+  const handleOpenSetMeetup = useCallback(() => {
+    if (!isMeetingPlaceFeatureEnabled) return
+    setMeetingActionError(null)
+
+    if (isMeetingPlaceActive) {
+      setIsMeetingRemovalRequestOpen(true)
+      return
+    }
+
+    setSelectedMeetingSuggestion(null)
+    setMeetingSearchQuery('')
+    setIsMeetingSearchOpen(true)
+  }, [isMeetingPlaceActive, isMeetingPlaceFeatureEnabled, setMeetingSearchQuery])
+
+  const handleSelectMeetingSuggestion = useCallback((suggestion: MeetingPlace) => {
+    setSelectedMeetingSuggestion(suggestion)
+    setMeetingActionError(null)
+    setIsMeetingSearchOpen(false)
+    setIsMeetingConfirmOpen(true)
+  }, [])
+
+  const handleConfirmMeetingSuggestion = useCallback(async () => {
+    if (!selectedMeetingSuggestion) return
+    try {
+      await setMeetingPlace(selectedMeetingSuggestion)
+      setMeetingActionError(null)
+      setIsMeetingConfirmOpen(false)
+      setIsMeetingSearchOpen(false)
+      setSelectedMeetingSuggestion(null)
+      setMeetingSearchQuery('')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to set meeting place'
+      setMeetingActionError(message)
+    }
+  }, [selectedMeetingSuggestion, setMeetingPlace, setMeetingSearchQuery])
+
+  const handleRequestMeetingPlaceRemoval = useCallback(async () => {
+    try {
+      await requestRemoval()
+      setMeetingActionError(null)
+      setIsMeetingRemovalRequestOpen(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to request meeting-place removal'
+      setMeetingActionError(message)
+    }
+  }, [requestRemoval])
+
+  const handleRespondMeetingPlaceRemoval = useCallback(async (accept: boolean) => {
+    try {
+      await respondRemoval(accept)
+      setMeetingActionError(null)
+      setIsMeetingRemovalDecisionOpen(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to respond to meeting-place removal'
+      setMeetingActionError(message)
+    }
+  }, [respondRemoval])
 
   // Watch location
   useEffect(() => {
@@ -589,6 +733,12 @@ function MapPage() {
       setLeaveToInviteTarget(null)
       setIsUsersDrawerOpen(false)
       setAlreadyConnectedName(null)
+      setIsMeetingSearchOpen(false)
+      setIsMeetingConfirmOpen(false)
+      setIsMeetingRemovalRequestOpen(false)
+      setIsMeetingRemovalDecisionOpen(false)
+      setSelectedMeetingSuggestion(null)
+      setMeetingActionError(null)
 
       await sendInvite(inviteTarget._id)
       navigate({ to: '/session' })
@@ -643,6 +793,12 @@ function MapPage() {
       setLeaveToInviteTarget(null)
       setLeaveForInviteError(null)
       setAlreadyConnectedName(null)
+      setIsMeetingSearchOpen(false)
+      setIsMeetingConfirmOpen(false)
+      setIsMeetingRemovalRequestOpen(false)
+      setIsMeetingRemovalDecisionOpen(false)
+      setSelectedMeetingSuggestion(null)
+      setMeetingActionError(null)
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
         updateIntervalRef.current = null
@@ -659,6 +815,9 @@ function MapPage() {
     if (!myLocation || !partnerLocation) return null
     return calculateDistance(myLocation.lat, myLocation.lng, partnerLocation.lat, partnerLocation.lng)
   })()
+  const myMeetingRoute = routePaths.find((path) => path.ownerUserId === userId) ?? routePaths[0] ?? null
+  const partnerMeetingRoute = routePaths.find((path) => path.ownerUserId && path.ownerUserId !== userId) ?? null
+  const effectiveMeetingError = meetingActionError ?? meetingPlaceError ?? meetingSearchError
 
   // Loading check
   if (isAuthenticated === null) {
@@ -741,6 +900,55 @@ function MapPage() {
         onCancelInvite={() => { void handleCancelOutgoing() }}
       />
 
+      <MeetingPlaceSearchDialog
+        isOpen={isMeetingSearchOpen}
+        query={meetingSearchQuery}
+        onQueryChange={setMeetingSearchQuery}
+        suggestions={meetingSuggestions}
+        isLoading={isMeetingSearchLoading}
+        error={effectiveMeetingError}
+        onClose={() => {
+          setIsMeetingSearchOpen(false)
+          setMeetingActionError(null)
+        }}
+        onSelect={handleSelectMeetingSuggestion}
+      />
+
+      <MeetingPlaceConfirmDialog
+        isOpen={isMeetingConfirmOpen}
+        place={selectedMeetingSuggestion}
+        partnerLabel={partnerDialogLabel}
+        isLoading={isMeetingPlaceMutating}
+        error={effectiveMeetingError}
+        onCancel={() => {
+          setIsMeetingConfirmOpen(false)
+          setSelectedMeetingSuggestion(null)
+          setMeetingActionError(null)
+        }}
+        onConfirm={() => { void handleConfirmMeetingSuggestion() }}
+      />
+
+      <MeetingPlaceRequestRemovalDialog
+        isOpen={isMeetingRemovalRequestOpen}
+        placeName={meetingPlace?.place?.name ?? 'current place'}
+        isLoading={isMeetingPlaceMutating}
+        error={effectiveMeetingError}
+        onCancel={() => {
+          setIsMeetingRemovalRequestOpen(false)
+          setMeetingActionError(null)
+        }}
+        onConfirm={() => { void handleRequestMeetingPlaceRemoval() }}
+      />
+
+      <MeetingPlaceRemovalDecisionDialog
+        isOpen={isMeetingRemovalDecisionOpen}
+        requesterLabel={removalRequesterLabel}
+        isLoading={isMeetingPlaceMutating}
+        error={effectiveMeetingError}
+        onKeep={() => { void handleRespondMeetingPlaceRemoval(false) }}
+        onRemove={() => { void handleRespondMeetingPlaceRemoval(true) }}
+      />
+
       <OnlineUsersDrawer
         isOpen={isUsersDrawerOpen}
         users={onlineUsers}
@@ -764,6 +972,8 @@ function MapPage() {
           myLocation={myLocation}
           partnerLocation={partnerLocation}
           routePath={routePath}
+          routePaths={routePaths}
+          meetingPlaceLocation={meetingPlaceLocation}
           isPartnerConnected={isPartnerConnected}
           userId={userId}
         />
@@ -866,8 +1076,39 @@ function MapPage() {
           </div>
         )}
 
-        {/* Fastest-route display */}
-        {isPartnerConnected && isLiveRouteEnabled && routePath?.points?.length && routePath.trafficDurationSeconds && routePath.distanceMeters ? (
+        {isMeetingPlaceFeatureEnabled && isWaitingForRemovalResponse && (
+          <div className="mt-4 flex justify-center">
+            <div className="meeting-status-chip">
+              Waiting for {partnerDialogLabel} to respond to your removal request...
+            </div>
+          </div>
+        )}
+
+        {isMeetingPlaceFeatureEnabled && isPartnerRemovalRequestPending && (
+          <div className="mt-4 flex justify-center">
+            <div className="meeting-status-chip">
+              {removalRequesterLabel} requested removal. Please decide.
+            </div>
+          </div>
+        )}
+
+        {isPartnerConnected && routePaths.length > 0 && routeMode === 'meeting_place' && myMeetingRoute?.trafficDurationSeconds && myMeetingRoute?.distanceMeters ? (
+          <div className="mt-4 flex justify-center">
+            <div className="route-info-chip">
+              <p className="route-info-chip__label">Meetup routes</p>
+              <p className="route-info-chip__value">
+                You {formatEta(myMeetingRoute.trafficDurationSeconds)} · {formatDistance(myMeetingRoute.distanceMeters)}
+              </p>
+              {partnerMeetingRoute?.trafficDurationSeconds && partnerMeetingRoute.distanceMeters ? (
+                <p className="route-info-chip__label mt-1">
+                  {partnerDialogLabel} {formatEta(partnerMeetingRoute.trafficDurationSeconds)} · {formatDistance(partnerMeetingRoute.distanceMeters)}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {isPartnerConnected && routePaths.length > 0 && routeMode !== 'meeting_place' && routePath?.trafficDurationSeconds && routePath.distanceMeters ? (
           <div className="mt-4 flex justify-center">
             <div className="route-info-chip">
               <p className="route-info-chip__label">Fastest road</p>
@@ -878,8 +1119,7 @@ function MapPage() {
           </div>
         ) : null}
 
-        {/* Distance fallback display */}
-        {isPartnerConnected && (!isLiveRouteEnabled || !routePath?.points?.length) && distance && (
+        {isPartnerConnected && routePaths.length === 0 && distance && (
           <div className="mt-4 flex justify-center">
             <div className="bg-[#FF035B] rounded-full px-6 py-3">
               <p className="text-white/80 text-xs text-center">Distance</p>
@@ -888,6 +1128,19 @@ function MapPage() {
           </div>
         )}
       </div>
+
+      {isMeetingPlaceFeatureEnabled && isPartnerConnected ? (
+        <button
+          type="button"
+          onClick={handleOpenSetMeetup}
+          disabled={isMeetingPlaceMutating || isWaitingForRemovalResponse}
+          className="absolute right-4 bottom-[max(108px,var(--safe-area-bottom))] z-[420] rounded-full px-4 py-3 flex items-center gap-2 meeting-fab disabled:opacity-55 disabled:cursor-not-allowed"
+          aria-label="Set meetup place"
+        >
+          <MapPin className="w-4 h-4" />
+          <span className="text-sm font-semibold">Set Meetup</span>
+        </button>
+      ) : null}
 
       {/* Bottom Controls */}
       <div className="absolute bottom-0 left-0 right-0 z-[400] p-4">
@@ -930,6 +1183,14 @@ function MapPage() {
           </div>
         )}
 
+        {effectiveMeetingError && !error && !updateError && (
+          <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-3 mb-4">
+            <p className="text-red-400 text-sm text-center">
+              {effectiveMeetingError}
+            </p>
+          </div>
+        )}
+
         <Button
           onClick={handleEndSession}
           isLoading={isLoading}
@@ -945,3 +1206,5 @@ function MapPage() {
 }
 
 export default MapPage
+
+

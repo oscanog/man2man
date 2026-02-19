@@ -11,6 +11,8 @@ interface MapSwitcherProps {
   myLocation: Location | null
   partnerLocation: Location | null
   routePath?: RoutePath | null
+  routePaths?: RoutePath[] | null
+  meetingPlaceLocation?: Location | null
   zoom?: number
   isPartnerConnected?: boolean
   userId?: string | null
@@ -38,6 +40,8 @@ export function MapSwitcher({
   myLocation,
   partnerLocation,
   routePath = null,
+  routePaths = null,
+  meetingPlaceLocation = null,
   zoom = 15,
   isPartnerConnected = false,
   userId,
@@ -158,6 +162,9 @@ export function MapSwitcher({
           myLocation={myLocation}
           partnerLocation={partnerLocation}
           routePath={routePath}
+          routePaths={routePaths}
+          meetingPlaceLocation={meetingPlaceLocation}
+          currentUserId={userId}
           zoom={zoom}
           initialCamera={getInitialCamera('google')}
           onCameraChange={(camera) => {
@@ -176,6 +183,9 @@ export function MapSwitcher({
           myLocation={myLocation}
           partnerLocation={partnerLocation}
           routePath={routePath}
+          routePaths={routePaths}
+          meetingPlaceLocation={meetingPlaceLocation}
+          currentUserId={userId}
           zoom={zoom}
           initialCamera={getInitialCamera('leaflet')}
         onCameraChange={(camera) => {
@@ -183,7 +193,7 @@ export function MapSwitcher({
         }}
       />
     )
-  }, [getInitialCamera, googleMapId, googleMapsApiKey, myLocation, partnerLocation, routePath, setMode, setTransientNotice, zoom])
+  }, [getInitialCamera, googleMapId, googleMapsApiKey, meetingPlaceLocation, myLocation, partnerLocation, routePath, routePaths, setMode, setTransientNotice, userId, zoom])
 
   const activeLayerClass = useMemo(() => {
     if (transitionPhase !== 'running') return 'translate-x-0'

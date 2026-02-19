@@ -19,6 +19,9 @@ export function LeafletMapProvider({
   myLocation,
   partnerLocation,
   routePath,
+  routePaths,
+  meetingPlaceLocation,
+  currentUserId,
   zoom = DEFAULT_ZOOM,
   onCameraChange,
   initialCamera,
@@ -28,8 +31,8 @@ export function LeafletMapProvider({
   const leafletRef = useRef<any>(null)
   const myMarkerRef = useRef<any>(null)
   const partnerMarkerRef = useRef<any>(null)
-  const routeHaloRef = useRef<any>(null)
-  const routeCoreRef = useRef<any>(null)
+  const meetingMarkerRef = useRef<any>(null)
+  const routeLayersRef = useRef<Map<string, { halo: any; core: any }>>(new Map())
   const hasCenteredRef = useRef(false)
   const hasRouteCenteredRef = useRef(false)
   const lastFitBoundsAtRef = useRef(0)
@@ -97,8 +100,8 @@ export function LeafletMapProvider({
       leafletRef.current = null
       myMarkerRef.current = null
       partnerMarkerRef.current = null
-      routeHaloRef.current = null
-      routeCoreRef.current = null
+      meetingMarkerRef.current = null
+      routeLayersRef.current.clear()
     }
   }, [])
 
@@ -130,51 +133,44 @@ export function LeafletMapProvider({
       markerRef.current.setLatLng([location.lat, location.lng])
     }
 
+    const css = window.getComputedStyle(document.documentElement)
+    const meetingMarkerColor = css.getPropertyValue('--color-meeting-marker').trim() || '#FFB300'
     updateMarker(myMarkerRef, myLocation, '#2196F3')
     updateMarker(partnerMarkerRef, partnerLocation, '#E91E63')
+    updateMarker(meetingMarkerRef, meetingPlaceLocation ?? null, meetingMarkerColor)
 
-    const removeRoute = () => {
-      if (routeHaloRef.current) {
-        map.removeLayer(routeHaloRef.current)
-        routeHaloRef.current = null
-      }
-      if (routeCoreRef.current) {
-        map.removeLayer(routeCoreRef.current)
-        routeCoreRef.current = null
-      }
-      hasRouteCenteredRef.current = false
-    }
+    const activeRoutesRaw = routePaths && routePaths.length > 0
+      ? routePaths
+      : routePath
+        ? [routePath]
+        : []
+    const activeRoutes = activeRoutesRaw.filter((route) => route.points.length >= 2)
+    const activeRouteKeys = new Set<string>()
 
-    const routePoints = routePath?.points ?? []
-    const hasRoute = routePoints.length >= 2
+    const haloColor = css.getPropertyValue('--route-line-halo').trim() || '#FFFFFF'
+    const coreDefault = css.getPropertyValue('--route-line-core').trim() || '#00D4FF'
+    const coreMine = css.getPropertyValue('--route-line-core-mine').trim() || coreDefault
+    const corePartner = css.getPropertyValue('--route-line-core-partner').trim() || '#FF7AA2'
 
-    if (!hasRoute) {
-      removeRoute()
-    } else {
-      const css = window.getComputedStyle(document.documentElement)
-      const haloColor = css.getPropertyValue('--route-line-halo').trim() || '#FFFFFF'
-      const coreColor = css.getPropertyValue('--route-line-core').trim() || '#00D4FF'
-      const dashArray = routePath?.isUsersMoving ? '10 16' : undefined
-      const latLngs = routePoints.map((point) => [point.lat, point.lng])
+    activeRoutes.forEach((route, index) => {
+      const routeKey = route.id || `route-${index}`
+      activeRouteKeys.add(routeKey)
+      const isMeetingRoute = route.destinationMode === 'meeting_place'
+      const isMine = Boolean(currentUserId && route.ownerUserId && route.ownerUserId === currentUserId)
+      const coreColor = isMeetingRoute ? (isMine ? coreMine : corePartner) : coreDefault
+      const dashArray = route.isUsersMoving ? '10 16' : undefined
+      const latLngs = route.points.map((point) => [point.lat, point.lng])
 
-      if (!routeHaloRef.current) {
-        routeHaloRef.current = L.polyline(latLngs, {
+      const existing = routeLayersRef.current.get(routeKey)
+      if (!existing) {
+        const halo = L.polyline(latLngs, {
           color: haloColor,
           weight: 10,
           opacity: 0.72,
           lineCap: 'round',
           lineJoin: 'round',
         }).addTo(map)
-      } else {
-        routeHaloRef.current.setLatLngs(latLngs)
-        routeHaloRef.current.setStyle({
-          color: haloColor,
-          opacity: 0.72,
-        })
-      }
-
-      if (!routeCoreRef.current) {
-        routeCoreRef.current = L.polyline(latLngs, {
+        const core = L.polyline(latLngs, {
           color: coreColor,
           weight: 5,
           opacity: 0.96,
@@ -182,26 +178,51 @@ export function LeafletMapProvider({
           lineCap: 'round',
           lineJoin: 'round',
         }).addTo(map)
-      } else {
-        routeCoreRef.current.setLatLngs(latLngs)
-        routeCoreRef.current.setStyle({
-          color: coreColor,
-          opacity: 0.96,
-          dashArray,
-        })
+        routeLayersRef.current.set(routeKey, { halo, core })
+        return
       }
+
+      existing.halo.setLatLngs(latLngs)
+      existing.halo.setStyle({
+        color: haloColor,
+        opacity: 0.72,
+      })
+      existing.core.setLatLngs(latLngs)
+      existing.core.setStyle({
+        color: coreColor,
+        opacity: 0.96,
+        dashArray,
+      })
+    })
+
+    for (const [routeKey, layers] of routeLayersRef.current.entries()) {
+      if (activeRouteKeys.has(routeKey)) continue
+      map.removeLayer(layers.halo)
+      map.removeLayer(layers.core)
+      routeLayersRef.current.delete(routeKey)
     }
 
-    if (hasRoute) {
+    const shouldFitComposite = activeRoutes.length > 0 || (myLocation && partnerLocation && meetingPlaceLocation)
+
+    if (shouldFitComposite) {
       const now = Date.now()
       if (!hasRouteCenteredRef.current || now - lastFitBoundsAtRef.current >= ROUTE_FIT_RECHECK_MS) {
         ignoreCameraChangeRef.current = true
-        const firstPoint = routePoints[0]
-        const bounds = L.latLngBounds([firstPoint.lat, firstPoint.lng], [firstPoint.lat, firstPoint.lng])
-        for (const point of routePoints) {
-          bounds.extend([point.lat, point.lng])
+
+        const firstPoint = activeRoutes[0]?.points[0] ?? myLocation ?? partnerLocation ?? meetingPlaceLocation
+        if (firstPoint) {
+          const bounds = L.latLngBounds([firstPoint.lat, firstPoint.lng], [firstPoint.lat, firstPoint.lng])
+          for (const route of activeRoutes) {
+            for (const point of route.points) {
+              bounds.extend([point.lat, point.lng])
+            }
+          }
+          if (myLocation) bounds.extend([myLocation.lat, myLocation.lng])
+          if (partnerLocation) bounds.extend([partnerLocation.lat, partnerLocation.lng])
+          if (meetingPlaceLocation) bounds.extend([meetingPlaceLocation.lat, meetingPlaceLocation.lng])
+          map.fitBounds(bounds, { padding: [56, 56], maxZoom: 17, animate: true })
         }
-        map.fitBounds(bounds, { padding: [56, 56], maxZoom: 17, animate: true })
+
         lastFitBoundsAtRef.current = now
         hasRouteCenteredRef.current = true
         window.setTimeout(() => {
@@ -211,7 +232,8 @@ export function LeafletMapProvider({
       return
     }
 
-    // Keep both users in view, but throttle fitBounds to avoid jitter and lag.
+    hasRouteCenteredRef.current = false
+
     if (myLocation && partnerLocation) {
       const now = Date.now()
       if (now - lastFitBoundsAtRef.current >= FIT_BOUNDS_INTERVAL_MS) {
@@ -229,7 +251,6 @@ export function LeafletMapProvider({
       return
     }
 
-    // Center once for single-user map mode to avoid recenters on every GPS tick.
     if (!hasCenteredRef.current && myLocation) {
       ignoreCameraChangeRef.current = true
       map.setView([myLocation.lat, myLocation.lng], initialCamera?.zoom ?? zoom, { animate: true })
@@ -238,7 +259,7 @@ export function LeafletMapProvider({
         ignoreCameraChangeRef.current = false
       }, 320)
     }
-  }, [myLocation, partnerLocation, routePath, zoom, initialCamera?.zoom])
+  }, [currentUserId, meetingPlaceLocation, myLocation, partnerLocation, routePath, routePaths, zoom, initialCamera?.zoom])
 
   return <div ref={mapContainerRef} className="h-full w-full bg-[#111827]" />
 }

@@ -80,6 +80,21 @@
   --route-chip-border: rgba(255, 255, 255, 0.24);
   --route-chip-text: #ffffff;
   --route-chip-muted: #b8c4d6;
+  --route-line-core-mine: #00d4ff;
+  --route-line-core-partner: #ff8a5b;
+  --color-meeting-accent: #12b886;
+  --color-meeting-marker: #ffb300;
+  --color-meeting-dialog-border: rgba(18, 184, 134, 0.34);
+  --color-meeting-input-bg: rgba(255, 255, 255, 0.05);
+  --color-meeting-input-border: rgba(255, 255, 255, 0.2);
+  --color-meeting-suggestion-bg: rgba(255, 255, 255, 0.04);
+  --color-meeting-suggestion-border: rgba(255, 255, 255, 0.18);
+  --color-meeting-fab-bg: rgba(15, 26, 45, 0.62);
+  --color-meeting-fab-border: rgba(255, 255, 255, 0.26);
+  --color-meeting-fab-text: #f8fafc;
+  --color-meeting-chip-bg: rgba(18, 184, 134, 0.16);
+  --color-meeting-chip-border: rgba(18, 184, 134, 0.46);
+  --color-meeting-chip-text: #d8fff2;
   
   /* Spacing Scale (Mobile-first: 4px base) */
   --space-1: 4px;
@@ -161,6 +176,21 @@
   --route-chip-border: rgba(15, 23, 42, 0.2);
   --route-chip-text: #0f172a;
   --route-chip-muted: #334155;
+  --route-line-core-mine: #0078ff;
+  --route-line-core-partner: #f97316;
+  --color-meeting-accent: #0ea271;
+  --color-meeting-marker: #f59e0b;
+  --color-meeting-dialog-border: rgba(14, 162, 113, 0.3);
+  --color-meeting-input-bg: rgba(15, 23, 42, 0.04);
+  --color-meeting-input-border: rgba(15, 23, 42, 0.16);
+  --color-meeting-suggestion-bg: rgba(15, 23, 42, 0.03);
+  --color-meeting-suggestion-border: rgba(15, 23, 42, 0.14);
+  --color-meeting-fab-bg: rgba(248, 251, 255, 0.76);
+  --color-meeting-fab-border: rgba(15, 23, 42, 0.2);
+  --color-meeting-fab-text: #0f172a;
+  --color-meeting-chip-bg: rgba(14, 162, 113, 0.14);
+  --color-meeting-chip-border: rgba(14, 162, 113, 0.34);
+  --color-meeting-chip-text: #0f4b39;
 }
 
 :root[data-theme='dark'] {
@@ -205,6 +235,21 @@
   --route-chip-border: rgba(255, 255, 255, 0.24);
   --route-chip-text: #ffffff;
   --route-chip-muted: #b8c4d6;
+  --route-line-core-mine: #00d4ff;
+  --route-line-core-partner: #ff8a5b;
+  --color-meeting-accent: #12b886;
+  --color-meeting-marker: #ffb300;
+  --color-meeting-dialog-border: rgba(18, 184, 134, 0.34);
+  --color-meeting-input-bg: rgba(255, 255, 255, 0.05);
+  --color-meeting-input-border: rgba(255, 255, 255, 0.2);
+  --color-meeting-suggestion-bg: rgba(255, 255, 255, 0.04);
+  --color-meeting-suggestion-border: rgba(255, 255, 255, 0.18);
+  --color-meeting-fab-bg: rgba(15, 26, 45, 0.62);
+  --color-meeting-fab-border: rgba(255, 255, 255, 0.26);
+  --color-meeting-fab-text: #f8fafc;
+  --color-meeting-chip-bg: rgba(18, 184, 134, 0.16);
+  --color-meeting-chip-border: rgba(18, 184, 134, 0.46);
+  --color-meeting-chip-text: #d8fff2;
 }
 
 @media (prefers-color-scheme: light) {
@@ -250,6 +295,21 @@
     --route-chip-border: rgba(15, 23, 42, 0.2);
     --route-chip-text: #0f172a;
     --route-chip-muted: #334155;
+    --route-line-core-mine: #0078ff;
+    --route-line-core-partner: #f97316;
+    --color-meeting-accent: #0ea271;
+    --color-meeting-marker: #f59e0b;
+    --color-meeting-dialog-border: rgba(14, 162, 113, 0.3);
+    --color-meeting-input-bg: rgba(15, 23, 42, 0.04);
+    --color-meeting-input-border: rgba(15, 23, 42, 0.16);
+    --color-meeting-suggestion-bg: rgba(15, 23, 42, 0.03);
+    --color-meeting-suggestion-border: rgba(15, 23, 42, 0.14);
+    --color-meeting-fab-bg: rgba(248, 251, 255, 0.76);
+    --color-meeting-fab-border: rgba(15, 23, 42, 0.2);
+    --color-meeting-fab-text: #0f172a;
+    --color-meeting-chip-bg: rgba(14, 162, 113, 0.14);
+    --color-meeting-chip-border: rgba(14, 162, 113, 0.34);
+    --color-meeting-chip-text: #0f4b39;
   }
 }
 
@@ -307,8 +367,40 @@ body {
   text-align: center;
 }
 
+.meeting-fab {
+  border: 1px solid var(--color-meeting-fab-border);
+  background: var(--color-meeting-fab-bg);
+  color: var(--color-meeting-fab-text);
+  backdrop-filter: blur(12px);
+  opacity: 0.6;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  transition: opacity 180ms ease, transform 180ms ease, background-color 180ms ease;
+}
+
+.meeting-fab:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.meeting-fab:focus-visible {
+  opacity: 0.92;
+}
+
+.meeting-status-chip {
+  border-radius: 9999px;
+  border: 1px solid var(--color-meeting-chip-border);
+  background: var(--color-meeting-chip-bg);
+  color: var(--color-meeting-chip-text);
+  backdrop-filter: blur(10px);
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .route-info-chip {
+  .route-info-chip,
+  .meeting-fab,
+  .meeting-status-chip {
     transition: none !important;
     animation: none !important;
   }

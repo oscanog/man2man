@@ -11,6 +11,9 @@ export interface RoutePoint {
 export type RouteStatus = 'pending' | 'ready' | 'stale' | 'error'
 
 export interface RoutePath {
+  id?: string
+  ownerUserId?: string | null
+  destinationMode?: 'partner' | 'meeting_place'
   status: RouteStatus
   provider: 'tomtom'
   points: RoutePoint[]
@@ -25,6 +28,11 @@ export interface RoutePath {
   lastError?: string
 }
 
+export interface MeetingRouteSummary {
+  mode: 'pair' | 'meeting_place'
+  routes: RoutePath[]
+}
+
 export interface CameraState {
   center: Location
   zoom: number
@@ -34,6 +42,9 @@ export interface MapProviderProps {
   myLocation: Location | null
   partnerLocation: Location | null
   routePath?: RoutePath | null
+  routePaths?: RoutePath[] | null
+  meetingPlaceLocation?: Location | null
+  currentUserId?: string | null
   zoom?: number
   mapId?: string
   onCameraChange?: (camera: CameraState) => void

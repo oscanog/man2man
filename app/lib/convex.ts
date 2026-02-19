@@ -30,16 +30,21 @@ interface RetryConfig {
   shouldRetry?: (error: Error, attempt: number) => boolean
 }
 
+interface RequestOptions {
+  signal?: AbortSignal
+}
+
 const DEFAULT_RETRY_CONFIG: Required<RetryConfig> = {
   maxRetries: 3,
   baseDelay: 1000,
   maxDelay: 10000,
   shouldRetry: (error, attempt) => {
+    if (error.name === 'AbortError') return false
     const message = error.message.toLowerCase()
+    if (message.includes('abort')) return false
     const isNetworkError = message.includes('fetch') ||
                           message.includes('network') ||
                           message.includes('timeout') ||
-                          message.includes('abort') ||
                           message.includes('failed')
     const isServerError = message.includes('500') ||
                          message.includes('502') ||
@@ -117,7 +122,8 @@ function decodeConvexError<T>(data: ConvexResponse<T>): Error {
 async function withRetry<T>(
   operation: () => Promise<T>,
   context: string,
-  config: RetryConfig = {}
+  config: RetryConfig = {},
+  requestOptions?: RequestOptions
 ): Promise<T> {
   const { maxRetries, baseDelay, maxDelay, shouldRetry } = { ...DEFAULT_RETRY_CONFIG, ...config }
 
@@ -128,6 +134,9 @@ async function withRetry<T>(
       const result = await operation()
       return result
     } catch (error) {
+      if (requestOptions?.signal?.aborted) {
+        throw new DOMException('The request was aborted', 'AbortError')
+      }
       lastError = new Error(extractErrorMessage(error, context))
 
       const isLastAttempt = attempt === maxRetries
@@ -150,7 +159,8 @@ async function withRetry<T>(
 export async function convexQuery<T>(
   path: string,
   args: Record<string, unknown> = {},
-  retryConfig?: RetryConfig
+  retryConfig?: RetryConfig,
+  requestOptions?: RequestOptions
 ): Promise<T> {
   return withRetry(async () => {
     const response = await fetch(`${CONVEX_URL}/api/query`, {
@@ -158,6 +168,7 @@ export async function convexQuery<T>(
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: requestOptions?.signal,
       body: JSON.stringify({ path, args } satisfies ConvexRequest),
     })
 
@@ -183,7 +194,7 @@ export async function convexQuery<T>(
     }
 
     return data.value as T
-  }, `query:${path}`, retryConfig)
+  }, `query:${path}`, retryConfig, requestOptions)
 }
 
 /**
@@ -192,7 +203,8 @@ export async function convexQuery<T>(
 export async function convexMutation<T>(
   path: string,
   args: Record<string, unknown> = {},
-  retryConfig?: RetryConfig
+  retryConfig?: RetryConfig,
+  requestOptions?: RequestOptions
 ): Promise<T> {
   return withRetry(async () => {
     const response = await fetch(`${CONVEX_URL}/api/mutation`, {
@@ -200,6 +212,7 @@ export async function convexMutation<T>(
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: requestOptions?.signal,
       body: JSON.stringify({ path, args } satisfies ConvexRequest),
     })
 
@@ -225,7 +238,7 @@ export async function convexMutation<T>(
     }
 
     return data.value as T
-  }, `mutation:${path}`, retryConfig)
+  }, `mutation:${path}`, retryConfig, requestOptions)
 }
 
 /**
@@ -234,7 +247,8 @@ export async function convexMutation<T>(
 export async function convexAction<T>(
   path: string,
   args: Record<string, unknown> = {},
-  retryConfig?: RetryConfig
+  retryConfig?: RetryConfig,
+  requestOptions?: RequestOptions
 ): Promise<T> {
   return withRetry(async () => {
     const response = await fetch(`${CONVEX_URL}/api/action`, {
@@ -242,6 +256,7 @@ export async function convexAction<T>(
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: requestOptions?.signal,
       body: JSON.stringify({ path, args } satisfies ConvexRequest),
     })
 
@@ -267,7 +282,7 @@ export async function convexAction<T>(
     }
 
     return data.value as T
-  }, `action:${path}`, retryConfig)
+  }, `action:${path}`, retryConfig, requestOptions)
 }
 
 /**
