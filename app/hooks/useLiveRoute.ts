@@ -73,6 +73,7 @@ export function useLiveRoute({
   enabled = false,
   pollMs = DEFAULT_POLL_MS,
 }: LiveRouteHookParams): LiveRouteResult {
+  const isDebug = (import.meta.env.VITE_DEBUG_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
   const [routePath, setRoutePath] = useState<RoutePath | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -89,13 +90,28 @@ export function useLiveRoute({
   const canRun = Boolean(enabled && sessionId && userId)
   const shouldTrackRoute = Boolean(canRun && isPartnerConnected && myLocation && partnerLocation)
 
+  const debugLog = useCallback((event: string, data?: Record<string, unknown>) => {
+    if (!isDebug) return
+    if (data) {
+      console.log(`[live-route] ${event}`, data)
+      return
+    }
+    console.log(`[live-route] ${event}`)
+  }, [isDebug])
+
   const fetchRoute = useCallback(async () => {
     if (!canRun || !userId) {
+      debugLog('fetch.skip', {
+        reason: 'cannot_run',
+        canRun,
+        hasUserId: Boolean(userId),
+      })
       setRoutePath(null)
       return
     }
 
     try {
+      debugLog('fetch.start', { sessionId, userId })
       const snapshot = await convexQuery<RouteSnapshotResponse | null>('routes:getForSession', {
         sessionId,
         userId,
@@ -104,10 +120,20 @@ export function useLiveRoute({
       })
 
       if (!snapshot) {
+        debugLog('fetch.empty_snapshot')
         setRoutePath(null)
         return
       }
 
+      debugLog('fetch.success', {
+        status: snapshot.status,
+        points: snapshot.polyline?.length ?? 0,
+        isFresh: snapshot.isFresh,
+        ageMs: snapshot.ageMs,
+        distanceMeters: snapshot.distanceMeters ?? null,
+        trafficDurationSeconds: snapshot.trafficDurationSeconds ?? null,
+        lastError: snapshot.lastError ?? null,
+      })
       setRoutePath({
         status: snapshot.status,
         provider: snapshot.provider,
@@ -125,9 +151,22 @@ export function useLiveRoute({
       setError(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch live route'
+      debugLog('fetch.error', { message })
       setError(message)
     }
-  }, [canRun, isUsersMoving, sessionId, userId])
+  }, [canRun, debugLog, isUsersMoving, sessionId, userId])
+
+  useEffect(() => {
+    debugLog('state.config', {
+      enabled,
+      canRun,
+      shouldTrackRoute,
+      isPartnerConnected,
+      hasMyLocation: Boolean(myLocation),
+      hasPartnerLocation: Boolean(partnerLocation),
+      pollMs,
+    })
+  }, [canRun, debugLog, enabled, isPartnerConnected, myLocation, partnerLocation, pollMs, shouldTrackRoute])
 
   useEffect(() => {
     if (!canRun) {
@@ -167,21 +206,33 @@ export function useLiveRoute({
     if (moved) {
       lastMoveAtRef.current = now
       setIsUsersMoving(true)
+      debugLog('motion.active', { moved: true })
     } else if (now - lastMoveAtRef.current > MOVING_HOLD_MS) {
       setIsUsersMoving(false)
+      debugLog('motion.inactive', { moved: false })
     }
 
     prevMyRef.current = myLocation
     prevPartnerRef.current = partnerLocation
-  }, [myLocation, partnerLocation])
+  }, [debugLog, myLocation, partnerLocation])
 
   useEffect(() => {
     if (!shouldTrackRoute || !userId || !myLocation || !partnerLocation) {
+      debugLog('recompute.skip', {
+        reason: 'preconditions',
+        shouldTrackRoute,
+        hasUserId: Boolean(userId),
+        hasMyLocation: Boolean(myLocation),
+        hasPartnerLocation: Boolean(partnerLocation),
+      })
       return
     }
 
     const now = Date.now()
-    if (recomputeInFlightRef.current) return
+    if (recomputeInFlightRef.current) {
+      debugLog('recompute.skip', { reason: 'in_flight' })
+      return
+    }
 
     const sinceLast = now - lastRecomputeAtRef.current
     const movedEnough =
@@ -190,6 +241,12 @@ export function useLiveRoute({
     const reachedCadence = sinceLast >= MIN_RECOMPUTE_INTERVAL_MS
 
     if (!movedEnough && !reachedCadence && lastRecomputeAtRef.current !== 0) {
+      debugLog('recompute.skip', {
+        reason: 'gated',
+        sinceLast,
+        movedEnough,
+        reachedCadence,
+      })
       return
     }
 
@@ -205,17 +262,19 @@ export function useLiveRoute({
     }, {
       maxRetries: 0,
     })
-      .then(() => {
+      .then((result) => {
+        debugLog('recompute.result', { result })
         void fetchRoute()
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : 'Failed to recompute live route'
+        debugLog('recompute.error', { message })
         setError(message)
       })
       .finally(() => {
         recomputeInFlightRef.current = false
       })
-  }, [fetchRoute, isPartnerConnected, myLocation, partnerLocation, sessionId, shouldTrackRoute, userId])
+  }, [debugLog, fetchRoute, isPartnerConnected, myLocation, partnerLocation, sessionId, shouldTrackRoute, userId])
 
   return useMemo(() => ({
     routePath: routePath ? { ...routePath, isUsersMoving } : null,

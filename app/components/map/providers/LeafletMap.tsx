@@ -23,6 +23,7 @@ export function LeafletMapProvider({
   onCameraChange,
   initialCamera,
 }: MapProviderProps) {
+  const isDebug = (import.meta.env.VITE_DEBUG_LIVE_ROUTE ?? 'false').toLowerCase() === 'true'
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
@@ -147,6 +148,13 @@ export function LeafletMapProvider({
 
     const routePoints = routePath?.points ?? []
     const hasRoute = routePoints.length >= 2
+    if (isDebug) {
+      console.log('[live-route][leaflet] update', {
+        hasRoute,
+        points: routePoints.length,
+        status: routePath?.status ?? null,
+      })
+    }
 
     if (!hasRoute) {
       removeRoute()
