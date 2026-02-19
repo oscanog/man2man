@@ -32,6 +32,7 @@ function JoinSessionPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const joinButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const userId = storage.getUserId()
 
@@ -45,6 +46,22 @@ function JoinSessionPage() {
     }
   }, [isAuthenticated])
 
+  const autoSubmitIfComplete = (nextCode: string[]) => {
+    const isComplete = nextCode.every((char) => char.length === 1)
+    if (!isComplete || isLoading || isVerifying) {
+      return
+    }
+
+    setTimeout(() => {
+      const activeElement = document.activeElement
+      if (activeElement instanceof HTMLElement) {
+        activeElement.blur()
+      }
+      joinButtonRef.current?.focus()
+      joinButtonRef.current?.click()
+    }, 0)
+  }
+
   const handleChange = (index: number, value: string) => {
     const cleanValue = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 
@@ -54,6 +71,7 @@ function JoinSessionPage() {
       chars.forEach((char, i) => { if (i < 6) newCode[i] = char })
       setCode(newCode)
       inputRefs.current[Math.min(chars.length, 5)]?.focus()
+      autoSubmitIfComplete(newCode)
     } else {
       const newCode = [...code]
       newCode[index] = cleanValue
@@ -61,6 +79,7 @@ function JoinSessionPage() {
       if (cleanValue && index < 5) {
         inputRefs.current[index + 1]?.focus()
       }
+      autoSubmitIfComplete(newCode)
     }
     setError(null)
   }
@@ -252,6 +271,7 @@ function JoinSessionPage() {
         )}
 
         <Button 
+          ref={joinButtonRef}
           onClick={handleJoin} 
           isLoading={isLoading && !isVerifying} 
           disabled={!isCodeComplete || isLoading || isVerifying} 
