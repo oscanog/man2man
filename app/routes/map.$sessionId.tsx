@@ -2,8 +2,10 @@ import { createFileRoute, useNavigate, useParams, Navigate } from '@tanstack/rea
 import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
 import { Menu, Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import {
+  AlreadyConnectedDialog,
   IncomingInviteDialog,
   InviteSendConfirmDialog,
+  LeaveCurrentSessionConfirmDialog,
   OutgoingPendingDialog,
 } from '@/components/modals/SessionInviteDialogs'
 import { OnlineUsersDrawer } from '@/components/sidebar/OnlineUsersDrawer'
@@ -93,6 +95,10 @@ function MapPage() {
   const [isSessionLoaded, setIsSessionLoaded] = useState(false)
   const [isUsersDrawerOpen, setIsUsersDrawerOpen] = useState(false)
   const [selectedInviteTarget, setSelectedInviteTarget] = useState<OnlineUser | null>(null)
+  const [leaveToInviteTarget, setLeaveToInviteTarget] = useState<OnlineUser | null>(null)
+  const [leaveForInviteError, setLeaveForInviteError] = useState<string | null>(null)
+  const [isLeavingForInvite, setIsLeavingForInvite] = useState(false)
+  const [alreadyConnectedName, setAlreadyConnectedName] = useState<string | null>(null)
 
   // Connection and retry state
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'disconnected'>('connected')
@@ -113,6 +119,11 @@ function MapPage() {
   const isHost = session?.user1Id === userId
   const isPartnerConnected = !!session?.user2Id && session?.status === 'active'
   const partnerName = partnerUser?.username?.trim() || null
+  const currentPartnerId = session?.user1Id === userId
+    ? session.user2Id
+    : session?.user2Id === userId
+      ? session.user1Id
+      : null
   const connectedPartnerLabel = partnerName ? `@${partnerName}` : '@unknown'
   const waitingSecondaryLabel = isHost ? 'No partner yet' : 'Syncing session'
   const { users: onlineUsers, isLoading: isOnlineUsersLoading, error: onlineUsersError } = useOnlineUsers(isUsersDrawerOpen)
@@ -141,12 +152,15 @@ function MapPage() {
     setError(message)
     setIsUsersDrawerOpen(false)
     setSelectedInviteTarget(null)
+    setLeaveToInviteTarget(null)
+    setLeaveForInviteError(null)
+    setAlreadyConnectedName(null)
     setConnectionStatus('disconnected')
     setUpdateError(null)
 
     setTimeout(() => {
       if (route === 'join') {
-        navigate({ to: '/session/join' })
+        navigate({ to: '/session/join', search: { code: undefined, from: undefined } })
         return
       }
       navigate({ to: '/session' })
@@ -421,6 +435,7 @@ function MapPage() {
   }, [sessionId, userId, isAuthenticated, performUpdate])
 
   const handleOpenUsersDrawer = useCallback(() => {
+    setAlreadyConnectedName(null)
     setIsUsersDrawerOpen(true)
   }, [])
 
@@ -431,13 +446,37 @@ function MapPage() {
   const handleOnlineUserClick = useCallback((user: OnlineUser) => {
     setIsUsersDrawerOpen(false)
     clearActionError()
+    setLeaveForInviteError(null)
+    setSelectedInviteTarget(null)
+    setLeaveToInviteTarget(null)
+
+    if (isPartnerConnected && currentPartnerId && user._id === currentPartnerId) {
+      setAlreadyConnectedName(user.username || partnerName || 'this user')
+      return
+    }
+
+    if (isPartnerConnected) {
+      setLeaveToInviteTarget(user)
+      return
+    }
+
     setSelectedInviteTarget(user)
-  }, [clearActionError])
+  }, [clearActionError, currentPartnerId, isPartnerConnected, partnerName])
 
   const handleDismissConfirmInvite = useCallback(() => {
     setSelectedInviteTarget(null)
     clearActionError()
   }, [clearActionError])
+
+  const handleDismissLeaveToInvite = useCallback(() => {
+    setLeaveToInviteTarget(null)
+    setLeaveForInviteError(null)
+    clearActionError()
+  }, [clearActionError])
+
+  const handleDismissAlreadyConnected = useCallback(() => {
+    setAlreadyConnectedName(null)
+  }, [])
 
   const handleConfirmSendInvite = useCallback(async () => {
     if (!selectedInviteTarget) {
@@ -451,6 +490,47 @@ function MapPage() {
       // Error is surfaced by inviteActionError state.
     }
   }, [selectedInviteTarget, sendInvite])
+
+  const handleConfirmLeaveAndInvite = useCallback(async () => {
+    if (!leaveToInviteTarget || !sessionId || !userId) {
+      return
+    }
+
+    const inviteTarget = leaveToInviteTarget
+    let didCloseCurrentSession = false
+
+    setIsLeavingForInvite(true)
+    setLeaveForInviteError(null)
+    clearActionError()
+
+    try {
+      await convexMutation('sessions:close', { sessionId, userId }, { maxRetries: 3 })
+      didCloseCurrentSession = true
+      hasExitedSessionRef.current = true
+
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current)
+        updateIntervalRef.current = null
+      }
+
+      setSelectedInviteTarget(null)
+      setLeaveToInviteTarget(null)
+      setIsUsersDrawerOpen(false)
+      setAlreadyConnectedName(null)
+
+      await sendInvite(inviteTarget._id)
+      navigate({ to: '/session' })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to switch session'
+      if (didCloseCurrentSession) {
+        navigate({ to: '/session' })
+        return
+      }
+      setLeaveForInviteError(message)
+    } finally {
+      setIsLeavingForInvite(false)
+    }
+  }, [clearActionError, leaveToInviteTarget, navigate, sendInvite, sessionId, userId])
 
   const handleRespondInvite = useCallback(async (accept: boolean) => {
     if (!incomingInvite) {
@@ -488,6 +568,9 @@ function MapPage() {
       hasExitedSessionRef.current = true
       setIsUsersDrawerOpen(false)
       setSelectedInviteTarget(null)
+      setLeaveToInviteTarget(null)
+      setLeaveForInviteError(null)
+      setAlreadyConnectedName(null)
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
         updateIntervalRef.current = null
@@ -545,6 +628,22 @@ function MapPage() {
 
   return (
     <div className="relative h-screen w-full">
+      <AlreadyConnectedDialog
+        isOpen={Boolean(alreadyConnectedName)}
+        connectedName={`@${alreadyConnectedName ?? 'user'}`}
+        onClose={handleDismissAlreadyConnected}
+      />
+
+      <LeaveCurrentSessionConfirmDialog
+        isOpen={Boolean(leaveToInviteTarget)}
+        currentPartnerName={partnerName ? `@${partnerName}` : 'your current partner'}
+        targetName={leaveToInviteTarget ? `@${leaveToInviteTarget.username}` : 'this user'}
+        isLoading={isLeavingForInvite}
+        error={leaveForInviteError}
+        onCancel={handleDismissLeaveToInvite}
+        onConfirm={() => { void handleConfirmLeaveAndInvite() }}
+      />
+
       <InviteSendConfirmDialog
         isOpen={Boolean(selectedInviteTarget)}
         targetName={selectedInviteTarget?.username ?? 'this user'}

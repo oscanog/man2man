@@ -224,3 +224,103 @@ export function OutgoingPendingDialog({
     </DialogShell>
   )
 }
+
+interface LeaveCurrentSessionConfirmDialogProps {
+  isOpen: boolean
+  currentPartnerName: string
+  targetName: string
+  isLoading: boolean
+  error: string | null
+  onCancel: () => void
+  onConfirm: () => void
+}
+
+export function LeaveCurrentSessionConfirmDialog({
+  isOpen,
+  currentPartnerName,
+  targetName,
+  isLoading,
+  error,
+  onCancel,
+  onConfirm,
+}: LeaveCurrentSessionConfirmDialogProps) {
+  return (
+    <DialogShell
+      isOpen={isOpen}
+      onClose={onCancel}
+      title="Leave current session?"
+      description={`You're connected with ${currentPartnerName}. Leave this session and request ${targetName} instead?`}
+    >
+      {error && (
+        <div
+          className="mb-4 rounded-xl p-3 text-sm"
+          style={{
+            backgroundColor: 'var(--color-modal-error-bg)',
+            border: '1px solid var(--color-modal-error-border)',
+            color: 'var(--color-modal-error-text)',
+          }}
+        >
+          {error}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={onCancel}
+          disabled={isLoading}
+          className="h-11 rounded-xl text-sm font-medium transition-opacity disabled:opacity-60"
+          style={{
+            backgroundColor: 'var(--color-modal-muted-bg)',
+            color: 'var(--color-modal-text)',
+            border: '1px solid var(--color-modal-border)',
+          }}
+        >
+          No
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={isLoading}
+          className="h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-opacity disabled:opacity-60"
+          style={{
+            backgroundColor: 'var(--color-rose)',
+            color: '#fff',
+          }}
+        >
+          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+          {isLoading ? 'Switching...' : 'Yes'}
+        </button>
+      </div>
+    </DialogShell>
+  )
+}
+
+interface AlreadyConnectedDialogProps {
+  isOpen: boolean
+  connectedName: string
+  onClose: () => void
+}
+
+export function AlreadyConnectedDialog({
+  isOpen,
+  connectedName,
+  onClose,
+}: AlreadyConnectedDialogProps) {
+  return (
+    <DialogShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Already connected"
+      description={`You already have an active session with ${connectedName}.`}
+    >
+      <button
+        onClick={onClose}
+        className="w-full h-11 rounded-xl text-sm font-semibold transition-opacity"
+        style={{
+          backgroundColor: 'var(--color-rose)',
+          color: '#fff',
+        }}
+      >
+        OK
+      </button>
+    </DialogShell>
+  )
+}

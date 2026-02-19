@@ -46,7 +46,9 @@ function SessionHomePage() {
 
         <Button
           variant="secondary"
-          onClick={() => navigate({ to: '/session/join' })}
+          onClick={() =>
+            navigate({ to: '/session/join', search: { code: undefined, from: undefined } })
+          }
           className="w-full"
         >
           Join Session
