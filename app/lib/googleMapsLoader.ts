@@ -1,8 +1,16 @@
 let googleMapsLoaderPromise: Promise<any> | null = null
+const CALLBACK_NAME = '__man2manGoogleMapsInit'
 
 function getGoogleMapsFromWindow() {
   if (typeof window === 'undefined') return null
   return (window as any).google?.maps ?? null
+}
+
+function isMapsReady(maps: any): boolean {
+  return Boolean(
+    maps &&
+    (typeof maps.Map === 'function' || typeof maps.importLibrary === 'function')
+  )
 }
 
 export function loadGoogleMapsApi(apiKey: string): Promise<any> {
@@ -15,7 +23,7 @@ export function loadGoogleMapsApi(apiKey: string): Promise<any> {
   }
 
   const existing = getGoogleMapsFromWindow()
-  if (existing) {
+  if (isMapsReady(existing)) {
     return Promise.resolve(existing)
   }
 
@@ -25,24 +33,37 @@ export function loadGoogleMapsApi(apiKey: string): Promise<any> {
 
   googleMapsLoaderPromise = new Promise((resolve, reject) => {
     const scriptId = 'man2man-google-maps-js-api'
-    const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`
+    const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async&libraries=marker&callback=${CALLBACK_NAME}`
+
+    const cleanup = () => {
+      try {
+        delete (window as any)[CALLBACK_NAME]
+      } catch {
+        ;(window as any)[CALLBACK_NAME] = undefined
+      }
+    }
+
+    const resolveIfReady = (): boolean => {
+      const maps = getGoogleMapsFromWindow()
+      if (isMapsReady(maps)) {
+        cleanup()
+        resolve(maps)
+        return true
+      }
+      return false
+    }
 
     const currentScript = document.getElementById(scriptId) as HTMLScriptElement | null
     if (currentScript) {
-      currentScript.addEventListener('load', () => {
-        const maps = getGoogleMapsFromWindow()
-        if (maps) {
-          resolve(maps)
-          return
-        }
-        googleMapsLoaderPromise = null
-        reject(new Error('Google Maps loaded but window.google.maps is unavailable'))
-      }, { once: true })
-      currentScript.addEventListener('error', () => {
-        googleMapsLoaderPromise = null
-        reject(new Error('Failed to load Google Maps API script'))
-      }, { once: true })
-      return
+      if (resolveIfReady()) return
+      currentScript.remove()
+    }
+
+    ;(window as any)[CALLBACK_NAME] = () => {
+      if (resolveIfReady()) return
+      cleanup()
+      googleMapsLoaderPromise = null
+      reject(new Error('Google Maps callback fired but API is not ready'))
     }
 
     const script = document.createElement('script')
@@ -51,17 +72,13 @@ export function loadGoogleMapsApi(apiKey: string): Promise<any> {
     script.async = true
     script.defer = true
 
+    // With loading=async, prefer callback for readiness, not load event.
     script.onload = () => {
-      const maps = getGoogleMapsFromWindow()
-      if (maps) {
-        resolve(maps)
-        return
-      }
-      googleMapsLoaderPromise = null
-      reject(new Error('Google Maps loaded but window.google.maps is unavailable'))
+      // no-op
     }
 
     script.onerror = () => {
+      cleanup()
       googleMapsLoaderPromise = null
       reject(new Error('Failed to load Google Maps API script'))
     }

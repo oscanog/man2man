@@ -23,6 +23,8 @@ export function GoogleMapProvider({
 }: GoogleMapProviderProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapsRef = useRef<any>(null)
+  const advancedMarkerCtorRef = useRef<any>(null)
+  const latLngBoundsCtorRef = useRef<any>(null)
   const mapRef = useRef<any>(null)
   const myMarkerRef = useRef<any>(null)
   const partnerMarkerRef = useRef<any>(null)
@@ -54,14 +56,39 @@ export function GoogleMapProvider({
           myLocation ??
           partnerLocation ??
           DEFAULT_CENTER
-        const map = new maps.Map(mapContainerRef.current, {
+
+        let MapCtor = maps.Map
+        if (typeof MapCtor !== 'function' && typeof maps.importLibrary === 'function') {
+          const mapsLibrary = await maps.importLibrary('maps')
+          MapCtor = mapsLibrary?.Map ?? maps.Map
+        }
+        if (typeof MapCtor !== 'function') {
+          throw new Error('Google Maps failed to initialize (Map constructor missing)')
+        }
+
+        const map = new MapCtor(mapContainerRef.current, {
           center,
           zoom: initialCamera?.zoom ?? zoom,
-          mapId: mapId || undefined,
+          // AdvancedMarkerElement works best on vector maps; fallback to demo map id when missing.
+          mapId: mapId || 'DEMO_MAP_ID',
           disableDefaultUI: true,
           gestureHandling: 'greedy',
           clickableIcons: false,
         })
+
+        let AdvancedMarkerCtor = maps.marker?.AdvancedMarkerElement ?? null
+        if (!AdvancedMarkerCtor && typeof maps.importLibrary === 'function') {
+          const markerLibrary = await maps.importLibrary('marker')
+          AdvancedMarkerCtor = markerLibrary?.AdvancedMarkerElement ?? maps.marker?.AdvancedMarkerElement ?? null
+        }
+        advancedMarkerCtorRef.current = AdvancedMarkerCtor
+
+        let LatLngBoundsCtor = maps.LatLngBounds ?? null
+        if (!LatLngBoundsCtor && typeof maps.importLibrary === 'function') {
+          const coreLibrary = await maps.importLibrary('core')
+          LatLngBoundsCtor = coreLibrary?.LatLngBounds ?? maps.LatLngBounds ?? null
+        }
+        latLngBoundsCtorRef.current = LatLngBoundsCtor
 
         mapRef.current = map
 
@@ -89,10 +116,12 @@ export function GoogleMapProvider({
       isMounted = false
       listenersRef.current.forEach((listener) => listener?.remove?.())
       listenersRef.current = []
-      myMarkerRef.current?.setMap?.(null)
-      partnerMarkerRef.current?.setMap?.(null)
+      if (myMarkerRef.current) myMarkerRef.current.map = null
+      if (partnerMarkerRef.current) partnerMarkerRef.current.map = null
       myMarkerRef.current = null
       partnerMarkerRef.current = null
+      advancedMarkerCtorRef.current = null
+      latLngBoundsCtorRef.current = null
       mapRef.current = null
       mapsRef.current = null
     }
@@ -102,7 +131,19 @@ export function GoogleMapProvider({
     if (!isReady || !mapsRef.current || !mapRef.current) return
 
     const maps = mapsRef.current
+    const AdvancedMarkerElement = advancedMarkerCtorRef.current
     const map = mapRef.current
+
+    const createPinContent = (color: string): HTMLDivElement => {
+      const pin = document.createElement('div')
+      pin.style.width = '20px'
+      pin.style.height = '20px'
+      pin.style.borderRadius = '9999px'
+      pin.style.background = color
+      pin.style.border = '3px solid #ffffff'
+      pin.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)'
+      return pin
+    }
 
     const updateMarker = (
       markerRef: { current: any },
@@ -111,30 +152,46 @@ export function GoogleMapProvider({
     ) => {
       if (!location) {
         if (markerRef.current) {
-          markerRef.current.setMap(null)
+          if (typeof markerRef.current.setMap === 'function') {
+            markerRef.current.setMap(null)
+          } else {
+            markerRef.current.map = null
+          }
           markerRef.current = null
         }
         return
       }
 
       if (!markerRef.current) {
-        markerRef.current = new maps.Marker({
-          position: location,
-          map,
-          icon: {
-            path: maps.SymbolPath.CIRCLE,
-            fillColor: color,
-            fillOpacity: 1,
-            strokeColor: '#ffffff',
-            strokeWeight: 3,
-            scale: 9,
-          },
-          optimized: true,
-        })
+        if (AdvancedMarkerElement) {
+          markerRef.current = new AdvancedMarkerElement({
+            position: location,
+            map,
+            content: createPinContent(color),
+          })
+        } else {
+          markerRef.current = new maps.Marker({
+            position: location,
+            map,
+            icon: {
+              path: maps.SymbolPath.CIRCLE,
+              fillColor: color,
+              fillOpacity: 1,
+              strokeColor: '#ffffff',
+              strokeWeight: 3,
+              scale: 9,
+            },
+            optimized: true,
+          })
+        }
         return
       }
 
-      markerRef.current.setPosition(location)
+      if ('position' in markerRef.current) {
+        markerRef.current.position = location
+      } else if (typeof markerRef.current.setPosition === 'function') {
+        markerRef.current.setPosition(location)
+      }
     }
 
     updateMarker(myMarkerRef, myLocation, '#2196F3')
@@ -144,10 +201,18 @@ export function GoogleMapProvider({
       const now = Date.now()
       if (now - lastFitBoundsAtRef.current >= FIT_BOUNDS_INTERVAL_MS) {
         ignoreCameraChangeRef.current = true
-        const bounds = new maps.LatLngBounds()
-        bounds.extend(myLocation)
-        bounds.extend(partnerLocation)
-        map.fitBounds(bounds, 56)
+        const LatLngBoundsCtor = latLngBoundsCtorRef.current
+        if (typeof LatLngBoundsCtor === 'function') {
+          const bounds = new LatLngBoundsCtor()
+          bounds.extend(myLocation)
+          bounds.extend(partnerLocation)
+          map.fitBounds(bounds, 56)
+        } else {
+          map.setCenter({
+            lat: (myLocation.lat + partnerLocation.lat) / 2,
+            lng: (myLocation.lng + partnerLocation.lng) / 2,
+          })
+        }
         lastFitBoundsAtRef.current = now
         window.setTimeout(() => {
           ignoreCameraChangeRef.current = false
