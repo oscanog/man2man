@@ -95,6 +95,12 @@
   --color-meeting-chip-bg: rgba(18, 184, 134, 0.16);
   --color-meeting-chip-border: rgba(18, 184, 134, 0.46);
   --color-meeting-chip-text: #d8fff2;
+  --color-camera-fab-bg: rgba(15, 26, 45, 0.45);
+  --color-camera-fab-border: rgba(255, 255, 255, 0.24);
+  --color-camera-fab-text: #f8fafc;
+  --color-camera-fab-active-bg: rgba(0, 212, 255, 0.22);
+  --color-camera-fab-active-border: rgba(0, 212, 255, 0.5);
+  --color-camera-fab-active-text: #c8f5ff;
   
   /* Spacing Scale (Mobile-first: 4px base) */
   --space-1: 4px;
@@ -191,6 +197,12 @@
   --color-meeting-chip-bg: rgba(14, 162, 113, 0.14);
   --color-meeting-chip-border: rgba(14, 162, 113, 0.34);
   --color-meeting-chip-text: #0f4b39;
+  --color-camera-fab-bg: rgba(248, 251, 255, 0.7);
+  --color-camera-fab-border: rgba(15, 23, 42, 0.2);
+  --color-camera-fab-text: #0f172a;
+  --color-camera-fab-active-bg: rgba(0, 120, 255, 0.14);
+  --color-camera-fab-active-border: rgba(0, 120, 255, 0.4);
+  --color-camera-fab-active-text: #0f3c8a;
 }
 
 :root[data-theme='dark'] {
@@ -250,6 +262,12 @@
   --color-meeting-chip-bg: rgba(18, 184, 134, 0.16);
   --color-meeting-chip-border: rgba(18, 184, 134, 0.46);
   --color-meeting-chip-text: #d8fff2;
+  --color-camera-fab-bg: rgba(15, 26, 45, 0.45);
+  --color-camera-fab-border: rgba(255, 255, 255, 0.24);
+  --color-camera-fab-text: #f8fafc;
+  --color-camera-fab-active-bg: rgba(0, 212, 255, 0.22);
+  --color-camera-fab-active-border: rgba(0, 212, 255, 0.5);
+  --color-camera-fab-active-text: #c8f5ff;
 }
 
 @media (prefers-color-scheme: light) {
@@ -310,6 +328,12 @@
     --color-meeting-chip-bg: rgba(14, 162, 113, 0.14);
     --color-meeting-chip-border: rgba(14, 162, 113, 0.34);
     --color-meeting-chip-text: #0f4b39;
+    --color-camera-fab-bg: rgba(248, 251, 255, 0.7);
+    --color-camera-fab-border: rgba(15, 23, 42, 0.2);
+    --color-camera-fab-text: #0f172a;
+    --color-camera-fab-active-bg: rgba(0, 120, 255, 0.14);
+    --color-camera-fab-active-border: rgba(0, 120, 255, 0.4);
+    --color-camera-fab-active-text: #0f3c8a;
   }
 }
 
@@ -386,6 +410,34 @@ body {
   opacity: 0.92;
 }
 
+.camera-fab {
+  border: 1px solid var(--color-camera-fab-border);
+  background: var(--color-camera-fab-bg);
+  color: var(--color-camera-fab-text);
+  backdrop-filter: blur(12px);
+  opacity: 0.55;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  transition: opacity 180ms ease, transform 180ms ease, background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.camera-fab:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.camera-fab:focus-visible {
+  opacity: 0.92;
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.camera-fab[data-active='true'] {
+  background: var(--color-camera-fab-active-bg);
+  border-color: var(--color-camera-fab-active-border);
+  color: var(--color-camera-fab-active-text);
+  opacity: 0.92;
+}
+
 .meeting-status-chip {
   border-radius: 9999px;
   border: 1px solid var(--color-meeting-chip-border);
@@ -400,6 +452,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .route-info-chip,
   .meeting-fab,
+  .camera-fab,
   .meeting-status-chip {
     transition: none !important;
     animation: none !important;

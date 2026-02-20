@@ -38,6 +38,8 @@ export interface CameraState {
   zoom: number
 }
 
+export type CameraMode = 'auto' | 'manual'
+
 export interface MapProviderProps {
   myLocation: Location | null
   partnerLocation: Location | null
@@ -45,6 +47,8 @@ export interface MapProviderProps {
   routePaths?: RoutePath[] | null
   meetingPlaceLocation?: Location | null
   currentUserId?: string | null
+  cameraMode?: CameraMode
+  recenterSignal?: number
   zoom?: number
   mapId?: string
   onCameraChange?: (camera: CameraState) => void

@@ -22,6 +22,8 @@ export function LeafletMapProvider({
   routePaths,
   meetingPlaceLocation,
   currentUserId,
+  cameraMode = 'auto',
+  recenterSignal = 0,
   zoom = DEFAULT_ZOOM,
   onCameraChange,
   initialCamera,
@@ -37,6 +39,7 @@ export function LeafletMapProvider({
   const hasRouteCenteredRef = useRef(false)
   const lastFitBoundsAtRef = useRef(0)
   const ignoreCameraChangeRef = useRef(false)
+  const recenterSignalHandledRef = useRef(recenterSignal)
 
   useEffect(() => {
     if (typeof window === 'undefined' || !mapContainerRef.current) return
@@ -203,6 +206,27 @@ export function LeafletMapProvider({
     }
 
     const shouldFitComposite = activeRoutes.length > 0 || (myLocation && partnerLocation && meetingPlaceLocation)
+    const hasRecenterSignal = recenterSignal !== recenterSignalHandledRef.current
+
+    if (hasRecenterSignal) {
+      recenterSignalHandledRef.current = recenterSignal
+      hasRouteCenteredRef.current = false
+      hasCenteredRef.current = false
+      lastFitBoundsAtRef.current = 0
+    }
+
+    if (cameraMode !== 'auto') {
+      hasRouteCenteredRef.current = false
+      if (!hasCenteredRef.current && myLocation) {
+        ignoreCameraChangeRef.current = true
+        map.setView([myLocation.lat, myLocation.lng], initialCamera?.zoom ?? zoom, { animate: true })
+        hasCenteredRef.current = true
+        window.setTimeout(() => {
+          ignoreCameraChangeRef.current = false
+        }, 320)
+      }
+      return
+    }
 
     if (shouldFitComposite) {
       const now = Date.now()
@@ -259,7 +283,7 @@ export function LeafletMapProvider({
         ignoreCameraChangeRef.current = false
       }, 320)
     }
-  }, [currentUserId, meetingPlaceLocation, myLocation, partnerLocation, routePath, routePaths, zoom, initialCamera?.zoom])
+  }, [cameraMode, currentUserId, meetingPlaceLocation, myLocation, partnerLocation, recenterSignal, routePath, routePaths, zoom, initialCamera?.zoom])
 
   return <div ref={mapContainerRef} className="h-full w-full bg-[#111827]" />
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layers3, Map as MapIcon } from 'lucide-react'
+import { Hand, Layers3, LocateFixed, Map as MapIcon } from 'lucide-react'
 import { useMapModePreference, type MapMode } from '@/hooks/useMapModePreference'
+import { useMapCameraPreference } from '@/hooks/useMapCameraPreference'
 import type { CameraState, Location, RoutePath } from '@/components/map/types'
 import { LeafletMapProvider } from '@/components/map/providers/LeafletMap'
 import { GoogleMapProvider } from '@/components/map/providers/GoogleMap'
@@ -51,12 +52,14 @@ export function MapSwitcher({
   const hasGoogleMapsConfig = googleMapsApiKey.length > 0
 
   const { mode, setMode } = useMapModePreference(userId)
+  const { cameraMode, setCameraMode } = useMapCameraPreference(userId)
 
   const [activeMode, setActiveMode] = useState<MapMode>(mode)
   const [incomingMode, setIncomingMode] = useState<MapMode | null>(null)
   const [transitionPhase, setTransitionPhase] = useState<TransitionPhase>('idle')
   const [direction, setDirection] = useState<SlideDirection>('right')
   const [notice, setNotice] = useState<string | null>(null)
+  const [recenterSignal, setRecenterSignal] = useState(0)
 
   const animationTimerRef = useRef<number | null>(null)
   const noticeTimerRef = useRef<number | null>(null)
@@ -123,6 +126,17 @@ export function MapSwitcher({
     beginTransition('leaflet')
   }, [beginTransition])
 
+  const toggleAutoRecenter = useCallback(() => {
+    if (cameraMode === 'auto') {
+      setCameraMode('manual')
+      setTransientNotice('Auto recenter disabled')
+      return
+    }
+    setCameraMode('auto')
+    setRecenterSignal((previous) => previous + 1)
+    setTransientNotice('Auto recenter enabled')
+  }, [cameraMode, setCameraMode, setTransientNotice])
+
   useEffect(() => {
     if (mode === activeMode || isAnimating) return
 
@@ -165,6 +179,8 @@ export function MapSwitcher({
           routePaths={routePaths}
           meetingPlaceLocation={meetingPlaceLocation}
           currentUserId={userId}
+          cameraMode={cameraMode}
+          recenterSignal={recenterSignal}
           zoom={zoom}
           initialCamera={getInitialCamera('google')}
           onCameraChange={(camera) => {
@@ -179,21 +195,23 @@ export function MapSwitcher({
     }
 
     return (
-        <LeafletMapProvider
-          myLocation={myLocation}
-          partnerLocation={partnerLocation}
-          routePath={routePath}
-          routePaths={routePaths}
-          meetingPlaceLocation={meetingPlaceLocation}
-          currentUserId={userId}
-          zoom={zoom}
-          initialCamera={getInitialCamera('leaflet')}
+      <LeafletMapProvider
+        myLocation={myLocation}
+        partnerLocation={partnerLocation}
+        routePath={routePath}
+        routePaths={routePaths}
+        meetingPlaceLocation={meetingPlaceLocation}
+        currentUserId={userId}
+        cameraMode={cameraMode}
+        recenterSignal={recenterSignal}
+        zoom={zoom}
+        initialCamera={getInitialCamera('leaflet')}
         onCameraChange={(camera) => {
           cameraByModeRef.current.leaflet = camera
         }}
       />
     )
-  }, [getInitialCamera, googleMapId, googleMapsApiKey, meetingPlaceLocation, myLocation, partnerLocation, routePath, routePaths, setMode, setTransientNotice, userId, zoom])
+  }, [cameraMode, getInitialCamera, googleMapId, googleMapsApiKey, meetingPlaceLocation, myLocation, partnerLocation, recenterSignal, routePath, routePaths, setMode, setTransientNotice, userId, zoom])
 
   const activeLayerClass = useMemo(() => {
     if (transitionPhase !== 'running') return 'translate-x-0'
@@ -229,6 +247,25 @@ export function MapSwitcher({
 
       {!isAnimating && isPartnerConnected && (
         <>
+          <button
+            type="button"
+            aria-label={cameraMode === 'auto' ? 'Disable auto recenter' : 'Enable auto recenter'}
+            aria-pressed={cameraMode === 'auto'}
+            title={cameraMode === 'auto' ? 'Auto recenter is on' : 'Auto recenter is off'}
+            onClick={toggleAutoRecenter}
+            data-active={cameraMode === 'auto'}
+            className="camera-fab absolute left-4 bottom-[max(108px,var(--safe-area-bottom))] z-[430] flex h-12 w-12 items-center justify-center rounded-full"
+          >
+            {cameraMode === 'auto' ? (
+              <LocateFixed className="h-5 w-5" />
+            ) : (
+              <Hand className="h-5 w-5" />
+            )}
+            <span className="sr-only">
+              {cameraMode === 'auto' ? 'Auto recenter enabled' : 'Auto recenter disabled'}
+            </span>
+          </button>
+
           {activeMode === 'leaflet' ? (
             <button
               type="button"

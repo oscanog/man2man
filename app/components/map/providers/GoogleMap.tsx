@@ -19,6 +19,8 @@ export function GoogleMapProvider({
   routePaths,
   meetingPlaceLocation,
   currentUserId,
+  cameraMode = 'auto',
+  recenterSignal = 0,
   zoom = DEFAULT_ZOOM,
   mapId,
   onCameraChange,
@@ -40,6 +42,7 @@ export function GoogleMapProvider({
   const hasRouteCenteredRef = useRef(false)
   const lastFitBoundsAtRef = useRef(0)
   const ignoreCameraChangeRef = useRef(false)
+  const recenterSignalHandledRef = useRef(recenterSignal)
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
@@ -301,6 +304,28 @@ export function GoogleMapProvider({
     }
 
     const shouldFitComposite = activeRoutes.length > 0 || (myLocation && partnerLocation && meetingPlaceLocation)
+    const hasRecenterSignal = recenterSignal !== recenterSignalHandledRef.current
+
+    if (hasRecenterSignal) {
+      recenterSignalHandledRef.current = recenterSignal
+      hasRouteCenteredRef.current = false
+      hasCenteredRef.current = false
+      lastFitBoundsAtRef.current = 0
+    }
+
+    if (cameraMode !== 'auto') {
+      hasRouteCenteredRef.current = false
+      if (!hasCenteredRef.current && myLocation) {
+        ignoreCameraChangeRef.current = true
+        map.setCenter(myLocation)
+        map.setZoom(initialCamera?.zoom ?? zoom)
+        hasCenteredRef.current = true
+        window.setTimeout(() => {
+          ignoreCameraChangeRef.current = false
+        }, 320)
+      }
+      return
+    }
 
     if (shouldFitComposite) {
       const now = Date.now()
@@ -367,7 +392,7 @@ export function GoogleMapProvider({
         ignoreCameraChangeRef.current = false
       }, 320)
     }
-  }, [currentUserId, isReady, meetingPlaceLocation, myLocation, partnerLocation, routePath, routePaths, zoom, initialCamera?.zoom])
+  }, [cameraMode, currentUserId, isReady, meetingPlaceLocation, myLocation, partnerLocation, recenterSignal, routePath, routePaths, zoom, initialCamera?.zoom])
 
   return <div ref={mapContainerRef} className="h-full w-full bg-[#111827]" />
 }
