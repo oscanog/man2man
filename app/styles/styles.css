@@ -649,6 +649,92 @@ a,
   animation: username-autofill 620ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.identity-recovery-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-modal-surface);
+  border: 1px solid var(--color-modal-border);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.35);
+}
+
+.identity-recovery-glow {
+  position: absolute;
+  top: -120px;
+  right: -80px;
+  width: 220px;
+  height: 220px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 3, 91, 0.26) 0%, rgba(255, 3, 91, 0) 70%);
+  pointer-events: none;
+}
+
+.identity-recovery-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-modal-text);
+  background: var(--color-modal-muted-bg);
+  border: 1px solid var(--color-modal-border);
+}
+
+.identity-recovery-username-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-rose);
+  background: rgba(255, 3, 91, 0.12);
+  border: 1px solid rgba(255, 3, 91, 0.32);
+}
+
+.identity-recovery-primary-btn,
+.identity-recovery-secondary-btn {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: opacity 180ms ease, transform 180ms ease, filter 180ms ease;
+}
+
+.identity-recovery-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #ffffff;
+  background: var(--color-rose);
+}
+
+.identity-recovery-primary-btn:hover {
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+
+.identity-recovery-secondary-btn {
+  color: var(--color-modal-text);
+  background: var(--color-modal-muted-bg);
+  border: 1px solid var(--color-modal-border);
+}
+
+.identity-recovery-secondary-btn:hover {
+  filter: brightness(1.03);
+}
+
+.identity-recovery-primary-btn:disabled,
+.identity-recovery-secondary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* ============================================
    Selection Styles
    ============================================ */

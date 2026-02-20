@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { Button } from '@/components/ui/Button'
 import { storage } from '@/lib/storage'
 import {
@@ -14,11 +14,7 @@ export const Route = createFileRoute('/session/')({
 
 function SessionHomePage() {
   const navigate = useNavigate()
-  const [username, setUsername] = useState<string | null>(null)
-
-  useEffect(() => {
-    setUsername(storage.getUsername())
-  }, [])
+  const username = storage.getUsername()
 
   useEffect(() => {
     const pending = getPendingJoinHandoff()

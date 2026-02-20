@@ -12,6 +12,7 @@ const STORAGE_KEYS = {
   deviceId: 'man2man_device_id',
   username: 'man2man_username',
   userId: 'man2man_user_id',
+  lastKnownUsername: 'man2man_last_username',
 } as const
 
 // Check if we're in browser environment
@@ -51,8 +52,18 @@ export const storage = {
     if (!isBrowser()) return
     try {
       localStorage.setItem(STORAGE_KEYS.username, username)
+      localStorage.setItem(STORAGE_KEYS.lastKnownUsername, username)
     } catch {
       // Ignore storage errors
+    }
+  },
+
+  getLastKnownUsername(): string | null {
+    if (!isBrowser()) return null
+    try {
+      return localStorage.getItem(STORAGE_KEYS.lastKnownUsername)
+    } catch {
+      return null
     }
   },
 
